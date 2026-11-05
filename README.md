@@ -13,10 +13,11 @@ Hecho con Next.js, Supabase y Vercel.
 ## Módulos
 
 1. Máquinas (hecho)
-2. Conduces
-3. Corte del 25 y factura
-4. Pago al dueño de la 430IT
-5. Cobros
+2. Conduces (hecho)
+3. Combustible (hecho: cargas, precio del día 25 y tarifa neta por hora)
+4. Corte del 25 y factura
+5. Pago al dueño de la 430IT
+6. Cobros
 
 La base de datos está en el proyecto SmartCat de Supabase. Para entrar, crea los usuarios en
 Supabase > Authentication > Users.
