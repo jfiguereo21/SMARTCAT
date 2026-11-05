@@ -28,6 +28,7 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
   const [serie, setSerie] = useState(machine?.serie ?? "");
   const [anio, setAnio] = useState(txt(machine?.anio));
   const [horometro, setHorometro] = useState(txt(machine?.horometro));
+  const [consumo, setConsumo] = useState(txt(machine?.consumo_esperado));
   const [estado, setEstado] = useState<Estado>(machine?.estado ?? "Disponible");
   const [obra, setObra] = useState(machine?.obra ?? "");
   const [seguro, setSeguro] = useState(machine?.seguro ?? "");
@@ -57,6 +58,9 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
     if (estado === "En obra" && obra.trim() === "")
       return setError("Si la máquina está En obra, escribe cuál obra.");
 
+    const consumoNum = aNumero(consumo);
+    if (consumo.trim() !== "" && (consumoNum == null || consumoNum <= 0))
+      return setError("El consumo normal tiene que ser un número mayor que cero, por ejemplo 6.5.");
     const pagoNum = aNumero(pago);
     if (pago.trim() !== "" && (pagoNum == null || pagoNum < 0))
       return setError("El pago al dueño tiene que ser un número.");
@@ -75,6 +79,7 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
       horometro: horas,
       horometro_fecha:
         horas == null ? null : cambioHoras ? hoyRD() : machine?.horometro_fecha ?? hoyRD(),
+      consumo_esperado: consumoNum,
       estado,
       obra: estado === "En obra" ? obra.trim() : obra.trim() || null,
       seguro: seguro.trim() || null,
@@ -151,6 +156,15 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
           />
           <div className="hint">
             No puede bajar. Se guarda con la fecha de hoy cuando lo cambias.
+          </div>
+        </div>
+
+        <div className="field">
+          <label htmlFor="f-consumo">Consumo normal (galones por hora)</label>
+          <input id="f-consumo" inputMode="decimal" value={consumo} onChange={(e) => setConsumo(e.target.value)} />
+          <div className="hint">
+            Opcional. Con este número el programa avisa si la máquina gasta mucho más o mucho menos. Si lo
+            dejas vacío, compara contra sus cortes anteriores.
           </div>
         </div>
 

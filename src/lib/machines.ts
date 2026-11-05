@@ -11,6 +11,7 @@ export type Machine = {
   anio: number | null;
   horometro: number | null;
   horometro_fecha: string | null;
+  consumo_esperado: number | null; // galones por hora que se consideran normales
   estado: Estado;
   obra: string | null;
   seguro: string | null;
