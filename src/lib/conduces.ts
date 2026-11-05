@@ -1,7 +1,10 @@
+export type Libreta = "FIPEC" | "BRAU";
+
 export type Tramo = { entrada: string; salida: string };
 
 export type Conduce = {
   id: string;
+  libreta: Libreta;
   numero: number;
   fecha: string; // AAAA-MM-DD
   machine_id: string;

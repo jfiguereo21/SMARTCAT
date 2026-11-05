@@ -11,6 +11,7 @@ import {
   sumaTramos,
   type Cliente,
   type Conduce,
+  type Libreta,
   type Tramo,
 } from "@/lib/conduces";
 import { reducirImagen } from "@/lib/imagen";
@@ -27,6 +28,7 @@ const TRAMO_VACIO: Tramo = { entrada: "", salida: "" };
 
 export default function ConduceEditor({ conduce, maquinas, clientes, onClose, onSaved }: Props) {
   const nuevo = conduce === null;
+  const [libreta, setLibreta] = useState<Libreta>(conduce?.libreta ?? "FIPEC");
   const [numero, setNumero] = useState(conduce ? String(conduce.numero) : "");
   const [fecha, setFecha] = useState(conduce?.fecha ?? hoyRD());
   const [machineId, setMachineId] = useState(conduce?.machine_id ?? "");
@@ -103,7 +105,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
     let fotoPath = conduce?.foto_path ?? null;
     if (fotoNueva) {
       const blob = await reducirImagen(fotoNueva);
-      const ruta = `${num}-${Date.now()}.jpg`;
+      const ruta = `${libreta}-${num}-${Date.now()}.jpg`;
       const { error: errFoto } = await supabase.storage
         .from("conduces")
         .upload(ruta, blob, { contentType: blob.type || "image/jpeg" });
@@ -116,6 +118,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
     }
 
     const datos = {
+      libreta,
       numero: num,
       fecha,
       machine_id: machineId,
@@ -136,7 +139,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
       : await supabase.from("conduces").update(datos).eq("id", conduce.id);
     setGuardando(false);
     if (err) {
-      if (err.code === "23505") return setError(`Ya existe el conduce #${num}.`);
+      if (err.code === "23505") return setError(`Ya existe el conduce #${num} de la libreta ${libreta}.`);
       return setError(`No se pudo guardar: ${err.message}`);
     }
     onSaved();
@@ -164,18 +167,28 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
   return (
     <div className="sheet-bg" onClick={onClose}>
       <form className="sheet" onClick={(e) => e.stopPropagation()} onSubmit={guardar}>
-        <h2>{nuevo ? "Conduce nuevo" : `Conduce #${conduce.numero}`}</h2>
+        <h2>{nuevo ? "Conduce nuevo" : `Conduce ${conduce.libreta} #${conduce.numero}`}</h2>
         {error && <div className="error">{error}</div>}
 
         <div className="grid2">
           <div className="field">
+            <label htmlFor="c-libreta">Libreta</label>
+            <select id="c-libreta" value={libreta} onChange={(e) => setLibreta(e.target.value as Libreta)}>
+              <option value="FIPEC">FIPEC</option>
+              <option value="BRAU">BRAU</option>
+            </select>
+          </div>
+          <div className="field">
             <label htmlFor="c-numero">Número</label>
             <input id="c-numero" inputMode="numeric" value={numero} onChange={(e) => setNumero(e.target.value)} />
           </div>
-          <div className="field">
-            <label htmlFor="c-fecha">Fecha</label>
-            <input id="c-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
-          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="c-fecha">Fecha</label>
+          <input id="c-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </div>
+        <div className="hint" style={{ marginTop: -6, marginBottom: 12 }}>
+          La libreta es la del talonario donde está escrito el conduce. Todos se facturan por FIPEC.
         </div>
 
         <div className="field">
@@ -290,7 +303,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
           <label htmlFor="c-foto">Foto del conduce</label>
           {fotoUrl && !fotoNueva && (
             <a href={fotoUrl} target="_blank" rel="noreferrer">
-              <img className="foto" src={fotoUrl} alt={`Conduce ${conduce?.numero ?? ""}`} />
+              <img className="foto" src={fotoUrl} alt={`Conduce ${conduce?.libreta ?? ""} ${conduce?.numero ?? ""}`} />
             </a>
           )}
           <input

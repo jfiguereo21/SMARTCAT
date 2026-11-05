@@ -146,7 +146,7 @@ export default function ConducesPage() {
             <div className="row">
               <div>
                 <h2>
-                  #{c.numero} · {c.machines?.nombre ?? "Máquina"}
+                  {c.libreta} #{c.numero} · {c.machines?.nombre ?? "Máquina"}
                 </h2>
                 <span className={c.firmado ? "pill disp" : "pill taller"}>
                   {c.firmado ? "Firmado" : "Sin firma"}
