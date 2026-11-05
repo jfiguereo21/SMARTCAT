@@ -1,53 +1,33 @@
+import type { Moneda } from "./machines";
+
+// Una carga de combustible, que se anota como gasto de la máquina.
 export type FuelLog = {
   id: string;
   fecha: string; // AAAA-MM-DD
   machine_id: string;
   galones: number;
+  precio_galon: number;
+  moneda: Moneda;
+  monto: number; // galones × precio, lo calcula la base de datos
   nota: string | null;
   machines?: { nombre: string } | null;
 };
 
-export type PreciosCorte = {
-  corte: string; // fecha del día 25 que cierra el corte
-  precio_diesel_dop: number;
-  tasa_dolar: number;
-};
+export const redondear2 = (n: number) => Math.round(n * 100) / 100;
 
-const redondear2 = (n: number) => Math.round(n * 100) / 100;
-
-// Precio del galón en dólares: precio en pesos entre la tasa del dólar.
-export function dieselUsd(precioDop: number, tasaDolar: number): number {
-  return precioDop / tasaDolar;
+// Lo que cuesta la carga: galones por precio del galón, a 2 decimales.
+export function montoCarga(galones: number, precioGalon: number): number {
+  return redondear2(galones * precioGalon);
 }
 
-export type ResumenCombustible = {
-  horas: number;
-  galones: number;
-  combustibleUsd: number; // todo el combustible del corte en dólares
-  porHora: number; // combustible entre horas
-  tarifaNeta: number; // tarifa base menos combustible por hora, a 2 decimales
-  monto: number; // horas × tarifa neta
-};
+export type TotalesGasto = { galones: number; DOP: number; USD: number };
 
-// Así lo calcula el cliente: suma el combustible que consumió la máquina,
-// lo divide entre las horas y ese resultado se le resta a la tarifa por hora.
-// Si no hay horas no hay tarifa neta que calcular.
-export function resumenCombustible(
-  horas: number,
-  galones: number,
-  precioGalonUsd: number,
-  tarifa: number
-): ResumenCombustible | null {
-  if (!(horas > 0)) return null;
-  const combustibleUsd = galones * precioGalonUsd;
-  const porHora = combustibleUsd / horas;
-  const tarifaNeta = redondear2(tarifa - porHora);
-  return {
-    horas,
-    galones,
-    combustibleUsd: redondear2(combustibleUsd),
-    porHora: redondear2(porHora),
-    tarifaNeta,
-    monto: redondear2(horas * tarifaNeta),
-  };
+// Suma las cargas: los galones juntos y el dinero separado por moneda (no se mezclan pesos con dólares).
+export function sumarCargas(cargas: Pick<FuelLog, "galones" | "monto" | "moneda">[]): TotalesGasto {
+  const t: TotalesGasto = { galones: 0, DOP: 0, USD: 0 };
+  for (const c of cargas) {
+    t.galones += c.galones;
+    t[c.moneda] += c.monto;
+  }
+  return { galones: redondear2(t.galones), DOP: redondear2(t.DOP), USD: redondear2(t.USD) };
 }

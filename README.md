@@ -14,7 +14,8 @@ Hecho con Next.js, Supabase y Vercel.
 
 1. Máquinas (hecho)
 2. Conduces (hecho)
-3. Combustible (hecho: cargas, precio del día 25 y tarifa neta por hora)
+3. Combustible como gasto (hecho)
+   - Acuerdos por máquina, cliente y lugar, en pesos o dólares (hecho)
 4. Corte del 25 y factura
 5. Pago al dueño de la 430IT
 6. Cobros

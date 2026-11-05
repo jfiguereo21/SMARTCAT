@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { aNumero, hoyRD, type Machine } from "@/lib/machines";
-import type { FuelLog } from "@/lib/combustible";
+import { aNumero, fmtMonto, hoyRD, type Machine, type Moneda } from "@/lib/machines";
+import { montoCarga, type FuelLog } from "@/lib/combustible";
 
 type Props = {
   carga: FuelLog | null; // null = carga nueva
@@ -17,10 +17,16 @@ export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props)
   const [fecha, setFecha] = useState(carga?.fecha ?? hoyRD());
   const [machineId, setMachineId] = useState(carga?.machine_id ?? "");
   const [galones, setGalones] = useState(carga ? String(carga.galones) : "");
+  const [precio, setPrecio] = useState(carga ? String(carga.precio_galon) : "");
+  const [moneda, setMoneda] = useState<Moneda>(carga?.moneda ?? "DOP");
   const [nota, setNota] = useState(carga?.nota ?? "");
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [borrarListo, setBorrarListo] = useState(false);
+
+  const gNum = aNumero(galones);
+  const pNum = aNumero(precio);
+  const total = gNum != null && gNum > 0 && pNum != null && pNum > 0 ? montoCarga(gNum, pNum) : null;
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault();
@@ -29,9 +35,11 @@ export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props)
     if (!fecha) return setError("Falta la fecha.");
     if (!machineId) return setError("Escoge la máquina.");
     if (g == null || g <= 0) return setError("Escribe los galones, por ejemplo 25 o 12.5.");
+    const p = aNumero(precio);
+    if (p == null || p <= 0) return setError("Escribe lo que pagaste por galón, por ejemplo 246.80.");
 
     setGuardando(true);
-    const datos = { fecha, machine_id: machineId, galones: g, nota: nota.trim() || null };
+    const datos = { fecha, machine_id: machineId, galones: g, precio_galon: p, moneda, nota: nota.trim() || null };
     const supabase = createClient();
     const { error: err } = nueva
       ? await supabase.from("fuel_logs").insert(datos)
@@ -71,6 +79,25 @@ export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props)
             <input id="f-gal" inputMode="decimal" value={galones} onChange={(e) => setGalones(e.target.value)} />
           </div>
         </div>
+
+        <div className="grid2">
+          <div className="field">
+            <label htmlFor="f-precio">Precio por galón</label>
+            <input id="f-precio" inputMode="decimal" value={precio} onChange={(e) => setPrecio(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="f-moneda">Moneda</label>
+            <select id="f-moneda" value={moneda} onChange={(e) => setMoneda(e.target.value as Moneda)}>
+              <option value="DOP">Pesos (RD$)</option>
+              <option value="USD">Dólares (US$)</option>
+            </select>
+          </div>
+        </div>
+        {total != null && (
+          <div className="resumen">
+            Gasto de esta carga: <b>{fmtMonto(total, moneda)}</b>
+          </div>
+        )}
 
         <div className="field">
           <label htmlFor="f-maq">Máquina</label>

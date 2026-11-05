@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function Nav({ activa }: { activa: "maquinas" | "conduces" | "combustible" }) {
+export default function Nav({ activa }: { activa: "maquinas" | "conduces" | "combustible" | "acuerdos" }) {
   const [correo, setCorreo] = useState("");
 
   useEffect(() => {
@@ -29,6 +29,9 @@ export default function Nav({ activa }: { activa: "maquinas" | "conduces" | "com
         </Link>
         <Link href="/combustible" className={activa === "combustible" ? "tab on" : "tab"}>
           Combustible
+        </Link>
+        <Link href="/acuerdos" className={activa === "acuerdos" ? "tab on" : "tab"}>
+          Acuerdos
         </Link>
       </nav>
       <div className="who">

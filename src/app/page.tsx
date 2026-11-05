@@ -4,7 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MachineEditor from "@/components/MachineEditor";
 import Nav from "@/components/Nav";
-import { fmtNum, fmtTarifa, lineaMargen, type Machine } from "@/lib/machines";
+import {
+  acuerdoVigente,
+  fmtNum,
+  fmtTarifa,
+  hoyRD,
+  lineaMargen,
+  type Acuerdo,
+  type Machine,
+} from "@/lib/machines";
 
 function clasePill(estado: Machine["estado"]) {
   if (estado === "En obra") return "pill obra";
@@ -14,6 +22,7 @@ function clasePill(estado: Machine["estado"]) {
 
 export default function MaquinasPage() {
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
+  const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   // undefined = editor cerrado, null = máquina nueva, Machine = editando
@@ -21,14 +30,18 @@ export default function MaquinasPage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const { data, error: err } = await supabase
-      .from("machines")
-      .select("*")
-      .order("nombre");
-    if (err) setError(`No se pudieron cargar las máquinas: ${err.message}`);
+    const [m, a] = await Promise.all([
+      supabase.from("machines").select("*").order("nombre"),
+      supabase.from("acuerdos").select("*, clients(nombre)").order("fecha_inicio", { ascending: false }),
+    ]);
+    const fallo = m.error ?? a.error;
+    if (fallo) setError(`No se pudieron cargar las máquinas: ${fallo.message}`);
     else {
       setError("");
-      setMaquinas((data ?? []) as Machine[]);
+      setMaquinas((m.data ?? []) as Machine[]);
+      setAcuerdos(
+        ((a.data ?? []) as unknown as Acuerdo[]).map((x) => ({ ...x, tarifa: Number(x.tarifa) }))
+      );
     }
     setCargando(false);
   }, []);
@@ -56,7 +69,8 @@ export default function MaquinasPage() {
       {maquinas.map((m) => {
         const specs = [m.marca, m.modelo].filter(Boolean).join(" ");
         const detalle = [specs, m.anio ? String(m.anio) : null, m.serie].filter(Boolean).join(" · ");
-        const margen = lineaMargen(m);
+        const acuerdo = acuerdoVigente(acuerdos, m.id, hoyRD());
+        const margen = lineaMargen(m, acuerdo);
         return (
           <button key={m.id} className="card" onClick={() => setEditando(m)}>
             <div className="row">
@@ -74,7 +88,8 @@ export default function MaquinasPage() {
             </div>
             {detalle && <div className="line">{detalle}</div>}
             <div className="line">
-              {fmtTarifa(m)}
+              {fmtTarifa(acuerdo)}
+              {acuerdo?.clients?.nombre ? ` · ${acuerdo.clients.nombre}` : ""}
               {m.propiedad === "Subcontratada" && ` · Subcontratada${m.dueno ? `, de ${m.dueno}` : ""}`}
             </div>
             {margen && <div className="line">{margen}</div>}
