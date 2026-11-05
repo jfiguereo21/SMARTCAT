@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MachineEditor from "@/components/MachineEditor";
+import Nav from "@/components/Nav";
 import { fmtNum, fmtTarifa, lineaMargen, type Machine } from "@/lib/machines";
 
 function clasePill(estado: Machine["estado"]) {
@@ -15,7 +16,6 @@ export default function MaquinasPage() {
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
-  const [correo, setCorreo] = useState("");
   // undefined = editor cerrado, null = máquina nueva, Machine = editando
   const [editando, setEditando] = useState<Machine | null | undefined>(undefined);
 
@@ -35,31 +35,16 @@ export default function MaquinasPage() {
 
   useEffect(() => {
     cargar();
-    createClient()
-      .auth.getUser()
-      .then(({ data }) => setCorreo(data.user?.email ?? ""));
   }, [cargar]);
-
-  async function salir() {
-    await createClient().auth.signOut();
-    window.location.href = "/login";
-  }
 
   return (
     <main className="wrap">
+      <Nav activa="maquinas" />
       <div className="top">
-        <div>
-          <h1>Máquinas</h1>
-          <div className="sub">{correo}</div>
-        </div>
-        <div className="actions" style={{ marginTop: 0 }}>
-          <button className="btn primary" onClick={() => setEditando(null)}>
-            + Nueva
-          </button>
-          <button className="btn" onClick={salir}>
-            Salir
-          </button>
-        </div>
+        <h1>Máquinas</h1>
+        <button className="btn primary" onClick={() => setEditando(null)}>
+          + Nueva
+        </button>
       </div>
 
       {error && <div className="error">{error}</div>}
