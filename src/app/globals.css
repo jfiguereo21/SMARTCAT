@@ -1,0 +1,276 @@
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #1b1f24;
+  --muted: #5b6570;
+  --line: #dde1e6;
+  --brand: #0b5cad;
+  --brand-text: #ffffff;
+  --ok: #17794a;
+  --ok-bg: #e2f4ea;
+  --obra: #0b5cad;
+  --obra-bg: #e1edf9;
+  --taller: #a15a00;
+  --taller-bg: #fdecd2;
+  --danger: #b3261e;
+  --danger-bg: #fbe4e2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171a;
+    --card: #1e2227;
+    --text: #eef0f2;
+    --muted: #9aa5b1;
+    --line: #333a42;
+    --brand: #4c9aea;
+    --brand-text: #0b1218;
+    --ok: #62d49a;
+    --ok-bg: #173a29;
+    --obra: #7db6f2;
+    --obra-bg: #18304a;
+    --taller: #f2b45c;
+    --taller-bg: #46300f;
+    --danger: #f2877f;
+    --danger-bg: #4a1f1c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.top h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.top .sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.btn {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: var(--brand);
+  color: var(--brand-text);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+
+.btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn.danger.armed {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+  width: 100%;
+  text-align: left;
+  display: block;
+  cursor: pointer;
+}
+
+.card .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.horas {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.horas small {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.line {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.pill {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-top: 6px;
+}
+
+.pill.disp {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.pill.obra {
+  background: var(--obra-bg);
+  color: var(--obra);
+}
+.pill.taller {
+  background: var(--taller-bg);
+  color: var(--taller);
+}
+
+.sheet-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 10;
+}
+
+.sheet {
+  background: var(--bg);
+  width: 100%;
+  max-width: 720px;
+  max-height: 94vh;
+  overflow-y: auto;
+  border-radius: 18px 18px 0 0;
+  padding: 16px;
+}
+
+.sheet h2 {
+  margin: 0 0 12px;
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-height: 44px;
+}
+
+.field textarea {
+  min-height: 80px;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.actions .grow {
+  flex: 1;
+}
+
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px 0;
+}
+
+.login {
+  max-width: 380px;
+  margin: 12vh auto 0;
+  padding: 16px;
+}
+
+.login h1 {
+  margin: 0 0 4px;
+}
