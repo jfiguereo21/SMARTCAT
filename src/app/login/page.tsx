@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -8,6 +8,11 @@ export default function LoginPage() {
   const [clave, setClave] = useState("");
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("e") === "sin-acceso")
+      setError("Tu usuario no tiene acceso. Habla con el administrador.");
+  }, []);
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault();

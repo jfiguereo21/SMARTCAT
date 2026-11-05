@@ -1,4 +1,5 @@
 export type Libreta = "FIPEC" | "BRAU";
+export type EstadoConduce = "Pendiente" | "Aprobado" | "Rechazado";
 
 export type Tramo = { entrada: string; salida: string };
 
@@ -18,7 +19,14 @@ export type Conduce = {
   firmado: boolean;
   horas_cobrables: number;
   foto_path: string | null;
+  foto_firmada_path: string | null;
   notas: string | null;
+  estado: EstadoConduce;
+  creado_por: string | null;
+  motivo_rechazo: string | null;
+  aprobado_por: string | null;
+  aprobado_en: string | null;
+  creador?: { nombre: string | null } | null;
   machines?: { nombre: string } | null;
   clients?: { nombre: string } | null;
 };
@@ -110,4 +118,25 @@ export function corteDe(fecha: string): { clave: string; etiqueta: string } {
   const clave = fin.toISOString().slice(0, 10);
   const etiqueta = `26 ${MESES[inicio.getUTCMonth()]} – 25 ${MESES[fin.getUTCMonth()]} ${fin.getUTCFullYear()}`;
   return { clave, etiqueta };
+}
+
+export type ResumenHoras = { hoy: number; aprobadas: number; pendientes: number; rechazadas: number };
+
+// Horas de un operador: las de hoy y las del corte actual, separando lo aprobado de lo que espera aprobación.
+export function resumenHoras(
+  conduces: Pick<Conduce, "fecha" | "estado" | "horas_cobrables">[],
+  hoy: string
+): ResumenHoras {
+  const corte = corteDe(hoy).clave;
+  const r: ResumenHoras = { hoy: 0, aprobadas: 0, pendientes: 0, rechazadas: 0 };
+  for (const c of conduces) {
+    const h = Number(c.horas_cobrables);
+    if (c.fecha === hoy && c.estado !== "Rechazado") r.hoy += h;
+    if (corteDe(c.fecha).clave !== corte) continue;
+    if (c.estado === "Aprobado") r.aprobadas += h;
+    else if (c.estado === "Pendiente") r.pendientes += h;
+    else r.rechazadas += h;
+  }
+  const d = (n: number) => Math.round(n * 100) / 100;
+  return { hoy: d(r.hoy), aprobadas: d(r.aprobadas), pendientes: d(r.pendientes), rechazadas: d(r.rechazadas) };
 }

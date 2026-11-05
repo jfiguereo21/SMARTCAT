@@ -16,6 +16,7 @@ Hecho con Next.js, Supabase y Vercel.
 2. Conduces (hecho)
 3. Combustible como gasto (hecho)
    - Acuerdos por máquina, cliente y lugar, en pesos o dólares (hecho)
+   - Operadores: app instalable en el celular, reportan horas y conduces, todo pasa por aprobación del administrador (hecho)
 4. Corte del 25 y factura
 5. Pago al dueño de la 430IT
 6. Cobros

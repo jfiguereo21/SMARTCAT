@@ -100,7 +100,8 @@ export default function CombustiblePage() {
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false }),
       supabase.from("machines").select("*").order("nombre"),
-      supabase.from("conduces").select("machine_id, fecha, horas_cobrables"),
+      supabase.from("conduces").select("machine_id, fecha, horas_cobrables")
+        .eq("estado", "Aprobado"),
       supabase.from("acuerdos").select("*"),
       supabase.from("corte_precios").select("*").order("corte", { ascending: false }),
     ]);

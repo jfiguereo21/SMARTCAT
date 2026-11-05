@@ -4,13 +4,21 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export default function Nav({ activa }: { activa: "maquinas" | "conduces" | "combustible" | "acuerdos" }) {
+type Seccion = "maquinas" | "conduces" | "combustible" | "acuerdos" | "operadores";
+
+export default function Nav({ activa }: { activa: Seccion }) {
   const [correo, setCorreo] = useState("");
+  const [porAprobar, setPorAprobar] = useState(0);
 
   useEffect(() => {
-    createClient()
-      .auth.getUser()
-      .then(({ data }) => setCorreo(data.user?.email ?? ""));
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => setCorreo(data.user?.email ?? ""));
+    // Cuántos conduces esperan tu aprobación.
+    supabase
+      .from("conduces")
+      .select("id", { count: "exact", head: true })
+      .eq("estado", "Pendiente")
+      .then(({ count }) => setPorAprobar(count ?? 0));
   }, []);
 
   async function salir() {
@@ -18,21 +26,21 @@ export default function Nav({ activa }: { activa: "maquinas" | "conduces" | "com
     window.location.href = "/login";
   }
 
+  const tab = (href: string, seccion: Seccion, texto: string, extra?: string) => (
+    <Link href={href} className={activa === seccion ? "tab on" : "tab"}>
+      {texto}
+      {extra}
+    </Link>
+  );
+
   return (
     <header className="nav">
       <nav className="tabs">
-        <Link href="/" className={activa === "maquinas" ? "tab on" : "tab"}>
-          Máquinas
-        </Link>
-        <Link href="/conduces" className={activa === "conduces" ? "tab on" : "tab"}>
-          Conduces
-        </Link>
-        <Link href="/combustible" className={activa === "combustible" ? "tab on" : "tab"}>
-          Combustible
-        </Link>
-        <Link href="/acuerdos" className={activa === "acuerdos" ? "tab on" : "tab"}>
-          Acuerdos
-        </Link>
+        {tab("/", "maquinas", "Máquinas")}
+        {tab("/conduces", "conduces", "Conduces", porAprobar > 0 ? ` (${porAprobar})` : "")}
+        {tab("/combustible", "combustible", "Combustible")}
+        {tab("/acuerdos", "acuerdos", "Acuerdos")}
+        {tab("/operadores", "operadores", "Operadores")}
       </nav>
       <div className="who">
         <span>{correo}</span>

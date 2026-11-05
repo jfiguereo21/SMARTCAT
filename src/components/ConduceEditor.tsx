@@ -11,6 +11,7 @@ import {
   sumaTramos,
   type Cliente,
   type Conduce,
+  type EstadoConduce,
   type Libreta,
   type Tramo,
 } from "@/lib/conduces";
@@ -50,6 +51,9 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [borrarListo, setBorrarListo] = useState(false);
+  const [rechazando, setRechazando] = useState(false);
+  const [motivo, setMotivo] = useState(conduce?.motivo_rechazo ?? "");
+  const [fotoFirmadaUrl, setFotoFirmadaUrl] = useState("");
 
   // Enlace temporal para ver la foto ya guardada.
   useEffect(() => {
@@ -59,6 +63,15 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
       .createSignedUrl(conduce.foto_path, 3600)
       .then(({ data }) => setFotoUrl(data?.signedUrl ?? ""));
   }, [conduce?.foto_path]);
+
+  // Enlace temporal para ver el conduce firmado que subió el operador.
+  useEffect(() => {
+    if (!conduce?.foto_firmada_path) return;
+    createClient()
+      .storage.from("conduces")
+      .createSignedUrl(conduce.foto_firmada_path, 3600)
+      .then(({ data }) => setFotoFirmadaUrl(data?.signedUrl ?? ""));
+  }, [conduce?.foto_firmada_path]);
 
   const calculadas = sumaTramos(tramos);
   const escritasNum = aHoras(escritas);
@@ -76,9 +89,11 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
     if (m?.obra && obra.trim() === "") setObra(m.obra);
   }
 
-  async function guardar(e: React.FormEvent) {
-    e.preventDefault();
+  // nuevoEstado: Aprobado o Rechazado cuando el administrador decide; sin él solo se guardan los cambios.
+  async function enviar(nuevoEstado?: EstadoConduce) {
     setError("");
+    if (nuevoEstado === "Rechazado" && motivo.trim() === "")
+      return setError("Escribe el motivo del rechazo para que el operador sepa qué corregir.");
 
     const num = Number(numero);
     if (!Number.isInteger(num) || num <= 0) return setError("Escribe el número del conduce, por ejemplo 1116.");
@@ -132,6 +147,9 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
       firmado,
       foto_path: fotoPath,
       notas: notas.trim() || null,
+      ...(nuevoEstado
+        ? { estado: nuevoEstado, motivo_rechazo: nuevoEstado === "Rechazado" ? motivo.trim() : null }
+        : {}),
     };
 
     const { error: err } = nuevo
@@ -166,9 +184,24 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
 
   return (
     <div className="sheet-bg" onClick={onClose}>
-      <form className="sheet" onClick={(e) => e.stopPropagation()} onSubmit={guardar}>
+      <form
+        className="sheet"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          enviar();
+        }}
+      >
         <h2>{nuevo ? "Conduce nuevo" : `Conduce ${conduce.libreta} #${conduce.numero}`}</h2>
         {error && <div className="error">{error}</div>}
+
+        {!nuevo && conduce.estado !== "Aprobado" && (
+          <div className={conduce.estado === "Rechazado" ? "alerta" : "resumen"} style={{ marginBottom: 12 }}>
+            {conduce.estado === "Pendiente" ? "Por aprobar" : "Rechazado"}
+            {conduce.creador?.nombre ? ` · lo envió ${conduce.creador.nombre}` : ""}
+            {conduce.estado === "Rechazado" && conduce.motivo_rechazo ? `. Motivo: ${conduce.motivo_rechazo}` : ""}
+          </div>
+        )}
 
         <div className="grid2">
           <div className="field">
@@ -300,6 +333,15 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
         </div>
 
         <div className="field">
+          {fotoFirmadaUrl && (
+            <>
+              <label>Conduce firmado que subió el operador</label>
+              <a href={fotoFirmadaUrl} target="_blank" rel="noreferrer">
+                <img className="foto" src={fotoFirmadaUrl} alt="Conduce firmado" />
+              </a>
+              {!firmado && <div className="hint">Si la firma está bien, marca “Firmado” arriba antes de aprobar.</div>}
+            </>
+          )}
           <label htmlFor="c-foto">Foto del conduce</label>
           {fotoUrl && !fotoNueva && (
             <a href={fotoUrl} target="_blank" rel="noreferrer">
@@ -320,9 +362,44 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
           <textarea id="c-notas" value={notas} onChange={(e) => setNotas(e.target.value)} />
         </div>
 
+        {!nuevo && conduce.estado !== "Aprobado" && (
+          <div className="resumen">
+            {rechazando ? (
+              <div className="field" style={{ marginBottom: 8 }}>
+                <label htmlFor="c-motivo">Motivo del rechazo</label>
+                <input id="c-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+              </div>
+            ) : (
+              <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+                Revisa las horas y la foto. Al aprobar, las horas empiezan a contar en el corte.
+              </div>
+            )}
+            <div className="actions" style={{ marginTop: 0 }}>
+              {!rechazando && (
+                <button type="button" className="btn primary grow" disabled={guardando} onClick={() => enviar("Aprobado")}>
+                  Aprobar
+                </button>
+              )}
+              <button
+                type="button"
+                className={`btn danger${rechazando ? " armed" : ""}${rechazando ? " grow" : ""}`}
+                disabled={guardando}
+                onClick={() => (rechazando ? enviar("Rechazado") : setRechazando(true))}
+              >
+                {rechazando ? "Confirmar rechazo" : "Rechazar"}
+              </button>
+              {rechazando && (
+                <button type="button" className="btn" disabled={guardando} onClick={() => setRechazando(false)}>
+                  Volver
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="actions">
           <button type="submit" className="btn primary grow" disabled={guardando}>
-            {guardando ? "Guardando..." : "Guardar"}
+            {guardando ? "Guardando..." : !nuevo && conduce.estado !== "Aprobado" ? "Guardar cambios" : "Guardar"}
           </button>
           <button type="button" className="btn" onClick={onClose} disabled={guardando}>
             Cancelar
