@@ -113,7 +113,7 @@ export default function PagosPage() {
     const [p, c, f, a, d, ds, pg] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_semanal, combustible_semanal")
+        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario")
         .eq("rol", "operador")
         .order("nombre"),
       supabase.from("conduces").select("creado_por, fecha, horas_cobrables, estado").in("estado", ["Aprobado", "Pendiente"]),
@@ -195,7 +195,9 @@ export default function PagosPage() {
               hoy,
               conduces: d.conduces,
               feriados: feriadosMapa,
-              ajustes: Object.fromEntries(d.ajustes.map((a) => [a.fecha, { horas: a.horas, motivo: a.motivo }])),
+              ajustes: Object.fromEntries(
+                d.ajustes.map((a) => [a.fecha, { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }])
+              ),
             });
             const tot = totalizar(dias, p.tarifa_hora);
             const debe = redondear2(d.deudas.reduce((a, x) => a + saldoDeuda(x, d.descuentos), 0));

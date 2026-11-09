@@ -16,6 +16,7 @@ import {
   saldoDeuda,
   semanaPagadaEl,
   sumarDias,
+  totalCampo,
   totalizar,
   ultimoLunes,
   type AjusteRow,
@@ -99,16 +100,17 @@ function AjusteDia({
 }) {
   const [horas, setHoras] = useState(ajuste ? String(ajuste.horas) : String(dia.horasPagadas));
   const [motivo, setMotivo] = useState(ajuste?.motivo ?? "");
+  const [fueAlCampo, setFueAlCampo] = useState(ajuste ? ajuste.fue_al_campo : dia.fueAlCampo);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
-  async function guardar(h: number, m: string) {
+  async function guardar(h: number, m: string, campo: boolean = fueAlCampo) {
     setError("");
     if (m.trim() === "") return setError("Escribe el motivo, por ejemplo: faltó o la máquina estaba en el taller.");
     setGuardando(true);
     const { error: err } = await createClient()
       .from("dias_operador")
-      .upsert({ user_id: userId, fecha: dia.fecha, horas: h, motivo: m.trim() });
+      .upsert({ user_id: userId, fecha: dia.fecha, horas: h, motivo: m.trim(), fue_al_campo: campo });
     setGuardando(false);
     if (err) return setError(`No se pudo guardar: ${err.message}`);
     onSaved();
@@ -140,13 +142,13 @@ function AjusteDia({
         <div className="field">
           <label>Cuando no corresponde la regla</label>
           <div className="actions">
-            <button type="button" className="btn small" disabled={guardando} onClick={() => guardar(0, "Faltó")}>
+            <button type="button" className="btn small" disabled={guardando} onClick={() => guardar(0, "Faltó", false)}>
               Faltó (0 h)
             </button>
-            <button type="button" className="btn small" disabled={guardando} onClick={() => guardar(0, "Máquina en el taller")}>
+            <button type="button" className="btn small" disabled={guardando} onClick={() => guardar(0, "Máquina en el taller", false)}>
               Taller (0 h)
             </button>
-            <button type="button" className="btn small" disabled={guardando} onClick={() => guardar(0, "Vacaciones")}>
+            <button type="button" className="btn small" disabled={guardando} onClick={() => guardar(0, "Vacaciones", false)}>
               Vacaciones (0 h)
             </button>
           </div>
@@ -162,6 +164,11 @@ function AjusteDia({
             <input id="aj-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           </div>
         </div>
+
+        <label className="check">
+          <input type="checkbox" checked={fueAlCampo} onChange={(e) => setFueAlCampo(e.target.checked)} />
+          Fue al campo ese día (cobra dieta y combustible)
+        </label>
 
         <div className="actions">
           <button
@@ -212,8 +219,8 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
   }, [q.inicio]);
 
   const ajustesMapa = useMemo(() => {
-    const m: Record<string, { horas: number; motivo: string | null }> = {};
-    d.ajustes.forEach((a) => (m[a.fecha] = { horas: a.horas, motivo: a.motivo }));
+    const m: Record<string, { horas: number; motivo: string | null; fueAlCampo: boolean }> = {};
+    d.ajustes.forEach((a) => (m[a.fecha] = { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }));
     return m;
   }, [d.ajustes]);
 
@@ -362,6 +369,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
                 {x.feriado ? ` · ${x.feriado}` : ""}
                 {x.nota ? ` · ${x.nota}` : ""}
                 {x.horasConduce > 0 ? ` · conduce ${fmtNum(x.horasConduce, 2)} h` : ""}
+                {x.fueAlCampo ? " · dieta y combustible" : ""}
               </div>
             </div>
             <div className="horas" style={{ fontSize: 20 }}>
@@ -481,14 +489,32 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
-  const valorDe = (l: string) =>
-    valores[l] ?? { dieta: String(perfil.dieta_semanal), comb: String(perfil.combustible_semanal) };
+  const ajustesMapa = useMemo(() => {
+    const m: Record<string, { horas: number; motivo: string | null; fueAlCampo: boolean }> = {};
+    d.ajustes.forEach((a) => (m[a.fecha] = { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }));
+    return m;
+  }, [d.ajustes]);
 
-  async function registrar(l: string) {
+  // Días de campo de cada semana, para calcular la dieta y el combustible
+  const campoDe = (l: string) => {
+    const s = semanaPagadaEl(l);
+    const dias = calcularDias({
+      inicio: s.inicio,
+      fin: s.fin,
+      pagaDesde: perfil.paga_desde,
+      hoy,
+      conduces: d.conduces,
+      feriados: d.feriados,
+      ajustes: ajustesMapa,
+    });
+    return { dias, total: totalCampo(dias, perfil.dieta_diaria, perfil.combustible_diario) };
+  };
+
+  async function registrar(l: string, sugerido: { dieta: number; combustible: number }) {
     setError("");
-    const v = valorDe(l);
-    const dieta = aNumero(v.dieta);
-    const comb = aNumero(v.comb);
+    const v = valores[l];
+    const dieta = v ? aNumero(v.dieta) : sugerido.dieta;
+    const comb = v ? aNumero(v.comb) : sugerido.combustible;
     if (dieta == null || dieta < 0 || comb == null || comb < 0) return setError("Escribe la dieta y el combustible (puede ser 0).");
     const s = semanaPagadaEl(l);
     setGuardando(true);
@@ -524,19 +550,30 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
     <>
       {error && <div className="error">{error}</div>}
       <div className="hint" style={{ marginBottom: 8 }}>
-        Cada lunes se paga la dieta y el combustible de la semana anterior. Los montos de arriba salen de lo que pusiste
-        en Operadores y puedes cambiarlos.
+        La dieta y el combustible se pagan por cada día que el operador fue al campo. Cada lunes se entrega lo de la
+        semana anterior. Los días de 4 horas sin ir al campo no cobran. Los montos por día se ponen en Operadores
+        ({dinero(perfil.dieta_diaria)} de dieta y {dinero(perfil.combustible_diario)} de combustible por día).
       </div>
       {lunes.length === 0 && <div className="empty">Todavía no hay semanas para pagar.</div>}
       {lunes.map((l) => {
         const s = semanaPagadaEl(l);
         const p = d.pagos.find((x) => x.tipo === "semanal" && x.periodo_inicio === s.inicio);
-        const v = valorDe(l);
+        const { dias, total } = campoDe(l);
+        const v = valores[l] ?? { dieta: String(total.dieta), comb: String(total.combustible) };
         return (
           <div className="card" key={l} style={{ cursor: "default" }}>
             <div className="row">
               <h2 style={{ fontSize: 16 }}>{s.etiqueta}</h2>
               {p && <span className="pill disp">Pagado</span>}
+            </div>
+            <div className="line">
+              Fue al campo {total.dias} {total.dias === 1 ? "día" : "días"}
+              {total.dias > 0
+                ? `: ${dias
+                    .filter((x) => x.fueAlCampo)
+                    .map((x) => `${nombreDia(x.fecha).slice(0, 3)} ${fmtCorta(x.fecha)}`)
+                    .join(", ")}`
+                : ""}
             </div>
             {p ? (
               <>
@@ -556,7 +593,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
                       id={`sd-${l}`}
                       inputMode="decimal"
                       value={v.dieta}
-                      onChange={(e) => setValores((x) => ({ ...x, [l]: { ...valorDe(l), dieta: e.target.value } }))}
+                      onChange={(e) => setValores((x) => ({ ...x, [l]: { ...v, dieta: e.target.value } }))}
                     />
                   </div>
                   <div className="field">
@@ -565,12 +602,16 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
                       id={`sc-${l}`}
                       inputMode="decimal"
                       value={v.comb}
-                      onChange={(e) => setValores((x) => ({ ...x, [l]: { ...valorDe(l), comb: e.target.value } }))}
+                      onChange={(e) => setValores((x) => ({ ...x, [l]: { ...v, comb: e.target.value } }))}
                     />
                   </div>
                 </div>
                 <div className="actions">
-                  <button className="btn small primary" onClick={() => registrar(l)} disabled={guardando}>
+                  <button
+                    className="btn small primary"
+                    onClick={() => registrar(l, { dieta: total.dieta, combustible: total.combustible })}
+                    disabled={guardando}
+                  >
                     Registrar pago
                   </button>
                 </div>

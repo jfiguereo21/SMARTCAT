@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import OperadorForm, { type MaquinaOperador } from "@/components/OperadorForm";
 import FuelOperadorForm from "@/components/FuelOperadorForm";
 import MiPago from "@/components/MiPago";
 import type { FuelLog } from "@/lib/combustible";
-import { fmtNum, hoyRD } from "@/lib/machines";
-import { corteDe, fmtFecha, resumenHoras, type Conduce } from "@/lib/conduces";
+import { fmtNum } from "@/lib/machines";
+import { fmtFecha, type Conduce } from "@/lib/conduces";
 
 export default function OperadorPage() {
   const [uid, setUid] = useState("");
@@ -68,9 +68,6 @@ export default function OperadorPage() {
     window.location.href = "/login";
   }
 
-  const hoy = hoyRD();
-  const r = useMemo(() => resumenHoras(conduces, hoy), [conduces, hoy]);
-  const etiquetaCorte = corteDe(hoy).etiqueta;
 
   return (
     <main className="wrap">
@@ -100,22 +97,6 @@ export default function OperadorPage() {
       ) : (
         <>
           {rol === "operador" && uid && <MiPago uid={uid} conduces={conduces} />}
-
-          <div className="totales">
-            <div className="total">
-              <div className="total-n">Hoy</div>
-              <div className="total-h">{fmtNum(r.hoy, 2)} h</div>
-            </div>
-            <div className="total">
-              <div className="total-n">Aprobadas · este corte</div>
-              <div className="total-h">{fmtNum(r.aprobadas, 2)} h</div>
-              <div className="total-c">{etiquetaCorte}</div>
-            </div>
-            <div className="total">
-              <div className="total-n">Esperando aprobación</div>
-              <div className="total-h">{fmtNum(r.pendientes, 2)} h</div>
-            </div>
-          </div>
 
           <div className="tabs" style={{ marginBottom: 12 }}>
             <button className={vista === "horas" ? "tab on" : "tab"} onClick={() => setVista("horas")}>
@@ -202,10 +183,6 @@ export default function OperadorPage() {
                         Firmado
                       </span>
                     )}
-                  </div>
-                  <div className="horas">
-                    {fmtNum(Number(c.horas_cobrables), 2)}
-                    <small> h</small>
                   </div>
                 </div>
                 <div className="line">{fmtFecha(c.fecha)}</div>

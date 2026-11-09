@@ -16,6 +16,7 @@ import {
   quincenaAnterior,
   quincenaDe,
   redondear2,
+  resumenPendiente,
   saldoDeuda,
   totalizar,
   type AjusteRow,
@@ -44,7 +45,7 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
     Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_semanal, combustible_semanal")
+        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario")
         .eq("user_id", uid)
         .maybeSingle(),
       supabase.from("feriados").select("fecha, nombre"),
@@ -75,8 +76,8 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
     [conduces]
   );
   const ajustesMapa = useMemo(() => {
-    const m: Record<string, { horas: number; motivo: string | null }> = {};
-    ajustes.forEach((a) => (m[a.fecha] = { horas: a.horas, motivo: a.motivo }));
+    const m: Record<string, { horas: number; motivo: string | null; fueAlCampo: boolean }> = {};
+    ajustes.forEach((a) => (m[a.fecha] = { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }));
     return m;
   }, [ajustes]);
 
@@ -85,6 +86,16 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
 
   const actual = quincenaDe(hoy);
   const anterior = quincenaAnterior(actual);
+  const res = resumenPendiente({
+    perfil,
+    hoy,
+    conduces: conducesDia,
+    feriados,
+    ajustes: ajustesMapa,
+    deudas,
+    descuentos,
+    pagos,
+  });
   const pagoDe = (q: Quincena) =>
     pagos.find((p) => p.tipo === "quincena" && p.periodo_inicio === q.inicio && p.periodo_fin === q.fin);
 
@@ -162,6 +173,41 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
 
   return (
     <>
+      <div className="totales">
+        <div className="total">
+          <div className="total-n">Horas acumuladas</div>
+          <div className="total-h">{fmtNum(res.horas, 2)} h</div>
+          <div className="total-c">por cobrar</div>
+        </div>
+        <div className="total">
+          <div className="total-n">Ganado a la fecha</div>
+          <div className="total-h">{perfil.tarifa_hora != null ? dinero(res.ganado) : "—"}</div>
+        </div>
+        <div className="total">
+          <div className="total-n">Debes</div>
+          <div className="total-h">{dinero(res.debe)}</div>
+        </div>
+        <div className="total">
+          <div className="total-n">Total a recibir</div>
+          <div className="total-h">{perfil.tarifa_hora != null ? dinero(res.total) : "—"}</div>
+          <div className="total-c">con dieta y combustible, menos deudas</div>
+        </div>
+      </div>
+      {perfil.tarifa_hora == null && (
+        <div className="aviso" style={{ marginBottom: 12 }}>
+          Tu precio por hora todavía no está puesto.
+        </div>
+      )}
+      {res.campo.dias > 0 && (
+        <div className="resumen">
+          <b>Dieta y combustible por cobrar el lunes</b>
+          <div>
+            {res.campo.dias} {res.campo.dias === 1 ? "día" : "días"} en el campo · dieta {dinero(res.campo.dieta)} +
+            combustible {dinero(res.campo.combustible)}
+          </div>
+        </div>
+      )}
+
       {!pagoDe(anterior) && perfil.paga_desde != null && perfil.paga_desde <= anterior.fin && bloque(anterior, "Quincena anterior")}
       {bloque(actual, "Quincena en curso")}
 

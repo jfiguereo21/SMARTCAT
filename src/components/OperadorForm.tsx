@@ -164,10 +164,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
         {soloFirma ? (
           <>
             <div className="resumen">
-              <div>{fmtFecha(conduce.fecha)}</div>
               <div>
-                {conduce.estado === "Aprobado" ? "Horas aprobadas" : "Horas enviadas"}:{" "}
-                <b>{fmtNum(Number(conduce.horas_cobrables), 2)} h</b>
+                {fmtFecha(conduce.fecha)} · {conduce.estado === "Aprobado" ? "Aprobado" : "Enviado"}
               </div>
               {conduce.estado === "Pendiente" && (
                 <div className="aviso">

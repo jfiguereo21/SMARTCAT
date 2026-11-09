@@ -121,6 +121,7 @@ export type TipoDia =
   | "pendiente"; // solo hay conduces sin aprobar: no se cuenta todavía
 
 export type DiaPago = {
+  fueAlCampo: boolean; // cobra dieta y combustible ese día
   fecha: string;
   tipo: TipoDia;
   horasConduce: number; // horas aprobadas en conduces ese día
@@ -131,7 +132,7 @@ export type DiaPago = {
 };
 
 export type ConduceDia = { fecha: string; horas: number; aprobado: boolean };
-export type AjusteDia = { horas: number; motivo: string | null };
+export type AjusteDia = { horas: number; motivo: string | null; fueAlCampo?: boolean };
 
 export type EntradaDias = {
   inicio: string;
@@ -156,23 +157,29 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
     const base = { fecha, horasConduce: aprobadas, horasPendientes: pendientes, feriado };
 
     if (ajuste) {
-      dias.push({ ...base, tipo: "ajuste", horasPagadas: redondear2(ajuste.horas), nota: ajuste.motivo });
+      dias.push({
+        ...base,
+        tipo: "ajuste",
+        horasPagadas: redondear2(ajuste.horas),
+        nota: ajuste.motivo,
+        fueAlCampo: ajuste.fueAlCampo ?? false,
+      });
       continue;
     }
     const noLaboral = diaSemana(fecha) === 0 || feriado != null;
     if (aprobadas > 0) {
       dias.push(
         noLaboral
-          ? { ...base, tipo: "doble", horasPagadas: redondear2(aprobadas * FACTOR_DOBLE), nota: null }
-          : { ...base, tipo: "normal", horasPagadas: Math.max(MIN_HORAS_DIA, aprobadas), nota: null }
+          ? { ...base, tipo: "doble", horasPagadas: redondear2(aprobadas * FACTOR_DOBLE), nota: null, fueAlCampo: true }
+          : { ...base, tipo: "normal", horasPagadas: Math.max(MIN_HORAS_DIA, aprobadas), nota: null, fueAlCampo: true }
       );
     } else if (pendientes > 0) {
-      dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: null });
+      dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: null, fueAlCampo: false });
     } else if (noLaboral) {
-      dias.push({ ...base, tipo: "no_paga", horasPagadas: 0, nota: null });
+      dias.push({ ...base, tipo: "no_paga", horasPagadas: 0, nota: null, fueAlCampo: false });
     } else if (fecha < e.hoy) {
       // El día de hoy sin conduce todavía no cuenta: el operador reporta al final del día.
-      dias.push({ ...base, tipo: "sin_conduce", horasPagadas: HORAS_SIN_CONDUCE, nota: null });
+      dias.push({ ...base, tipo: "sin_conduce", horasPagadas: HORAS_SIN_CONDUCE, nota: null, fueAlCampo: false });
     }
   }
   return dias;
@@ -229,11 +236,11 @@ export type PerfilPago = {
   activo: boolean;
   tarifa_hora: number | null;
   paga_desde: string | null;
-  dieta_semanal: number;
-  combustible_semanal: number;
+  dieta_diaria: number;
+  combustible_diario: number;
 };
 
-export type AjusteRow = { user_id: string; fecha: string; horas: number; motivo: string | null };
+export type AjusteRow = { user_id: string; fecha: string; horas: number; motivo: string | null; fue_al_campo: boolean };
 
 export type PagoRow = {
   id: string;
@@ -270,8 +277,8 @@ export const aPerfilPago = (x: Record<string, unknown>): PerfilPago => ({
   activo: Boolean(x.activo),
   tarifa_hora: x.tarifa_hora == null ? null : Number(x.tarifa_hora),
   paga_desde: (x.paga_desde as string | null) ?? null,
-  dieta_semanal: Number(x.dieta_semanal ?? 0),
-  combustible_semanal: Number(x.combustible_semanal ?? 0),
+  dieta_diaria: Number(x.dieta_diaria ?? 0),
+  combustible_diario: Number(x.combustible_diario ?? 0),
 });
 
 export const aPagoRow = (x: Record<string, unknown>): PagoRow => ({
@@ -316,6 +323,7 @@ export const aAjusteRow = (x: Record<string, unknown>): AjusteRow => ({
   fecha: String(x.fecha),
   horas: Number(x.horas),
   motivo: (x.motivo as string | null) ?? null,
+  fue_al_campo: Boolean(x.fue_al_campo),
 });
 
 export const etiquetaTipo: Record<TipoDia, string> = {
@@ -326,3 +334,101 @@ export const etiquetaTipo: Record<TipoDia, string> = {
   ajuste: "Ajustado",
   pendiente: "Conduce por aprobar",
 };
+
+// --- Dieta y combustible: se pagan por cada día que el operador fue al campo, y se entregan cada lunes ---
+
+export type TotalCampo = { dias: number; dieta: number; combustible: number };
+
+export function totalCampo(dias: DiaPago[], dietaDiaria: number, combustibleDiario: number): TotalCampo {
+  const n = dias.filter((d) => d.fueAlCampo).length;
+  return { dias: n, dieta: redondear2(n * dietaDiaria), combustible: redondear2(n * combustibleDiario) };
+}
+
+// --- Lo que el operador lleva sin cobrar hasta hoy (para su pantalla) ---
+
+export type ResumenPendiente = {
+  horas: number; // horas pagables acumuladas en las quincenas sin pagar
+  ganado: number; // lo ganado por esas horas
+  descuento: number; // lo que se le descontaría por deudas en esos pagos
+  campo: TotalCampo; // dieta y combustible de las semanas sin pagar
+  debe: number; // lo que debe en total ahora mismo
+  total: number; // ganado + dieta y combustible - descuento
+  horasPorAprobar: number;
+};
+
+export function resumenPendiente(e: {
+  perfil: Pick<PerfilPago, "tarifa_hora" | "paga_desde" | "dieta_diaria" | "combustible_diario">;
+  hoy: string;
+  conduces: ConduceDia[];
+  feriados: Record<string, string>;
+  ajustes: Record<string, AjusteDia>;
+  deudas: Deuda[];
+  descuentos: DescuentoDeuda[];
+  pagos: Pick<PagoRow, "tipo" | "periodo_inicio" | "periodo_fin">[];
+}): ResumenPendiente {
+  const vacio: ResumenPendiente = {
+    horas: 0,
+    ganado: 0,
+    descuento: 0,
+    campo: { dias: 0, dieta: 0, combustible: 0 },
+    debe: redondear2(e.deudas.reduce((a, d) => a + saldoDeuda(d, e.descuentos), 0)),
+    total: 0,
+    horasPorAprobar: 0,
+  };
+  if (!e.perfil.paga_desde) return vacio;
+
+  const dias = calcularDias({
+    inicio: e.perfil.paga_desde,
+    fin: e.hoy,
+    pagaDesde: e.perfil.paga_desde,
+    hoy: e.hoy,
+    conduces: e.conduces,
+    feriados: e.feriados,
+    ajustes: e.ajustes,
+  });
+
+  // Quincenas sin pagar, de la más vieja a la más nueva
+  const grupos = new Map<string, DiaPago[]>();
+  for (const d of dias) {
+    const q = quincenaDe(d.fecha);
+    const k = `${q.inicio}|${q.fin}`;
+    grupos.set(k, [...(grupos.get(k) ?? []), d]);
+  }
+  let horas = 0;
+  let ganado = 0;
+  let descuento = 0;
+  let porAprobar = 0;
+  const corriendo: DescuentoDeuda[] = [...e.descuentos];
+  for (const [k, ds] of [...grupos.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const [inicio, fin] = k.split("|");
+    porAprobar += totalizar(ds, e.perfil.tarifa_hora).pendientes;
+    if (e.pagos.some((p) => p.tipo === "quincena" && p.periodo_inicio === inicio && p.periodo_fin === fin)) continue;
+    const t = totalizar(ds, e.perfil.tarifa_hora);
+    horas += t.horas;
+    ganado += t.bruto;
+    const plan = planDescuentos(e.deudas, corriendo, t.bruto);
+    for (const l of plan) {
+      descuento += l.descuento;
+      if (l.descuento > 0) corriendo.push({ deuda_id: l.deuda.id, monto: l.descuento });
+    }
+  }
+
+  // Dieta y combustible de las semanas (lunes a domingo) que todavía no se han pagado
+  const diasSinPagar = dias.filter(
+    (d) => !e.pagos.some((p) => p.tipo === "semanal" && p.periodo_inicio === ultimoLunes(d.fecha))
+  );
+  const campo = totalCampo(diasSinPagar, e.perfil.dieta_diaria, e.perfil.combustible_diario);
+
+  horas = redondear2(horas);
+  ganado = redondear2(ganado);
+  descuento = redondear2(descuento);
+  return {
+    horas,
+    ganado,
+    descuento,
+    campo,
+    debe: vacio.debe,
+    total: redondear2(ganado + campo.dieta + campo.combustible - descuento),
+    horasPorAprobar: redondear2(porAprobar),
+  };
+}

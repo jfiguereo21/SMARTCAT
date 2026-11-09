@@ -13,8 +13,8 @@ type Perfil = {
   activo: boolean;
   tarifa_hora: number | null;
   paga_desde: string | null;
-  dieta_semanal: number;
-  combustible_semanal: number;
+  dieta_diaria: number;
+  combustible_diario: number;
 };
 type Asignacion = { user_id: string; machine_id: string };
 
@@ -35,8 +35,8 @@ function EditorOperador({
   const [activo, setActivo] = useState(perfil.activo);
   const [tarifa, setTarifa] = useState(perfil.tarifa_hora != null ? String(perfil.tarifa_hora) : "");
   const [pagaDesde, setPagaDesde] = useState(perfil.paga_desde ?? "");
-  const [dieta, setDieta] = useState(String(perfil.dieta_semanal ?? 0));
-  const [combustible, setCombustible] = useState(String(perfil.combustible_semanal ?? 0));
+  const [dieta, setDieta] = useState(String(perfil.dieta_diaria ?? 0));
+  const [combustible, setCombustible] = useState(String(perfil.combustible_diario ?? 0));
   const [elegidas, setElegidas] = useState<string[]>(asignadas);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -64,8 +64,8 @@ function EditorOperador({
         activo,
         tarifa_hora: t,
         paga_desde: pagaDesde === "" ? null : pagaDesde,
-        dieta_semanal: di,
-        combustible_semanal: co,
+        dieta_diaria: di,
+        combustible_diario: co,
       })
       .eq("user_id", perfil.user_id);
     if (e1) {
@@ -119,16 +119,16 @@ function EditorOperador({
           </div>
           <div className="grid2">
             <div className="field">
-              <label htmlFor="op-dieta">Dieta por semana (RD$)</label>
+              <label htmlFor="op-dieta">Dieta por día de campo (RD$)</label>
               <input id="op-dieta" inputMode="decimal" value={dieta} onChange={(e) => setDieta(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="op-comb">Combustible por semana (RD$)</label>
+              <label htmlFor="op-comb">Combustible por día de campo (RD$)</label>
               <input id="op-comb" inputMode="decimal" value={combustible} onChange={(e) => setCombustible(e.target.value)} />
             </div>
           </div>
           <div className="hint">
-            El precio por hora es el que acordaste con el operador. Antes de la fecha "cobra desde" no se le paga nada.
+            El precio por hora es el que acordaste con el operador y no cambia salvo que tú lo cambies. La dieta y el combustible se pagan solo los días que va al campo; se entregan cada lunes. Antes de la fecha "cobra desde" no se le paga nada.
           </div>
         </div>
 
@@ -175,7 +175,7 @@ export default function OperadoresPage() {
     const [p, a, m, c] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_semanal, combustible_semanal")
+        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario")
         .order("nombre"),
       supabase.from("operador_maquinas").select("user_id, machine_id"),
       supabase.from("machines").select("*").order("nombre"),
@@ -189,8 +189,8 @@ export default function OperadoresPage() {
         ((p.data ?? []) as Perfil[]).map((x) => ({
           ...x,
           tarifa_hora: x.tarifa_hora == null ? null : Number(x.tarifa_hora),
-          dieta_semanal: Number(x.dieta_semanal ?? 0),
-          combustible_semanal: Number(x.combustible_semanal ?? 0),
+          dieta_diaria: Number(x.dieta_diaria ?? 0),
+          combustible_diario: Number(x.combustible_diario ?? 0),
         }))
       );
       setAsignaciones((a.data ?? []) as Asignacion[]);
