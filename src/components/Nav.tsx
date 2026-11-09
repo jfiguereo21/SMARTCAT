@@ -9,6 +9,7 @@ type Seccion = "maquinas" | "conduces" | "combustible" | "acuerdos" | "operadore
 export default function Nav({ activa }: { activa: Seccion }) {
   const [correo, setCorreo] = useState("");
   const [porAprobar, setPorAprobar] = useState(0);
+  const [gasoilPorAprobar, setGasoilPorAprobar] = useState(0);
 
   useEffect(() => {
     const supabase = createClient();
@@ -19,6 +20,12 @@ export default function Nav({ activa }: { activa: Seccion }) {
       .select("id", { count: "exact", head: true })
       .eq("estado", "Pendiente")
       .then(({ count }) => setPorAprobar(count ?? 0));
+    // Cuánto combustible reportado por operadores espera tu aprobación.
+    supabase
+      .from("fuel_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("estado", "Pendiente")
+      .then(({ count }) => setGasoilPorAprobar(count ?? 0));
   }, []);
 
   async function salir() {
@@ -38,7 +45,7 @@ export default function Nav({ activa }: { activa: Seccion }) {
       <nav className="tabs">
         {tab("/", "maquinas", "Máquinas")}
         {tab("/conduces", "conduces", "Conduces", porAprobar > 0 ? ` (${porAprobar})` : "")}
-        {tab("/combustible", "combustible", "Combustible")}
+        {tab("/combustible", "combustible", "Combustible", gasoilPorAprobar > 0 ? ` (${gasoilPorAprobar})` : "")}
         {tab("/acuerdos", "acuerdos", "Acuerdos")}
         {tab("/operadores", "operadores", "Operadores")}
       </nav>

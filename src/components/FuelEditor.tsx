@@ -3,18 +3,25 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { aNumero, fmtMonto, hoyRD, type Machine, type Moneda } from "@/lib/machines";
-import { montoCarga, type FuelLog, type Origen } from "@/lib/combustible";
+import { fmtFecha } from "@/lib/conduces";
+import { useFotoUrl } from "@/lib/fotos";
+import { montoCarga, type EstadoCarga, type FuelLog, type Origen } from "@/lib/combustible";
 
 type Props = {
   carga: FuelLog | null; // null = carga nueva
   maquinas: Machine[];
+  alerta?: { texto: string; alerta: boolean } | null; // consumo del corte con esta carga incluida
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props) {
+export default function FuelEditor({ carga, maquinas, alerta, onClose, onSaved }: Props) {
   const nueva = carga === null;
-  const [origen, setOrigen] = useState<Origen>(carga?.origen ?? "Cliente");
+  // Una carga que mandó el operador y todavía no está aprobada: se revisa, se completa y se aprueba o se rechaza.
+  const revisar = carga != null && carga.estado !== "Aprobado";
+  const [origen, setOrigen] = useState<Origen | "">(revisar ? "" : carga?.origen ?? "Cliente");
+  const [motivo, setMotivo] = useState("");
+  const urlFoto = useFotoUrl(carga?.foto_path);
   const [fecha, setFecha] = useState(carga?.fecha ?? hoyRD());
   const [machineId, setMachineId] = useState(carga?.machine_id ?? "");
   const [galones, setGalones] = useState(carga ? String(carga.galones) : "");
@@ -32,25 +39,32 @@ export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props)
       ? montoCarga(gNum, pNum)
       : null;
 
-  async function guardar(e: React.FormEvent) {
-    e.preventDefault();
+  async function enviar(nuevoEstado?: EstadoCarga) {
     setError("");
     if (!fecha) return setError("Falta la fecha.");
     if (!machineId) return setError("Escoge la máquina.");
     if (gNum == null || gNum <= 0) return setError("Escribe los galones, por ejemplo 25 o 12.5.");
+    if (nuevoEstado === "Aprobado" && origen === "")
+      return setError("Antes de aprobar, di quién pagó el combustible.");
+    if (nuevoEstado === "Rechazado" && motivo.trim() === "")
+      return setError("Escribe por qué la rechazas, para que el operador lo sepa.");
     if (origen === "Propio" && (pNum == null || pNum <= 0))
       return setError("Escribe lo que pagaste por galón, por ejemplo 246.80.");
 
     setGuardando(true);
+    const origenFinal: Origen = origen === "" ? "Cliente" : origen;
     const datos = {
       fecha,
       machine_id: machineId,
-      origen,
+      origen: origenFinal,
       galones: gNum,
       // Si lo dio el cliente, el precio se pone el día 25 en la pantalla de Combustible.
-      precio_galon: origen === "Propio" ? pNum : null,
-      moneda: origen === "Propio" ? moneda : "DOP",
+      precio_galon: origenFinal === "Propio" ? pNum : null,
+      moneda: origenFinal === "Propio" ? moneda : "DOP",
       nota: nota.trim() || null,
+      ...(nuevoEstado
+        ? { estado: nuevoEstado, motivo_rechazo: nuevoEstado === "Rechazado" ? motivo.trim() : null }
+        : {}),
     };
     const supabase = createClient();
     const { error: err } = nueva
@@ -59,6 +73,11 @@ export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props)
     setGuardando(false);
     if (err) return setError(`No se pudo guardar: ${err.message}`);
     onSaved();
+  }
+
+  function guardar(e: React.FormEvent) {
+    e.preventDefault();
+    enviar();
   }
 
   async function borrar() {
@@ -78,12 +97,36 @@ export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props)
   return (
     <div className="sheet-bg" onClick={onClose}>
       <form className="sheet" onClick={(e) => e.stopPropagation()} onSubmit={guardar}>
-        <h2>{nueva ? "Carga de combustible" : "Editar carga"}</h2>
+        <h2>{nueva ? "Carga de combustible" : revisar ? "Revisar carga" : "Editar carga"}</h2>
         {error && <div className="error">{error}</div>}
+
+        {revisar && (
+          <div className={carga.estado === "Rechazado" ? "aviso" : "resumen"} style={{ marginBottom: 12 }}>
+            {carga.estado === "Rechazado" ? (
+              <>Rechazada{carga.motivo_rechazo ? `: ${carga.motivo_rechazo}` : ""}.</>
+            ) : (
+              <>
+                Reportada por <b>{carga.creador?.nombre || "un operador"}</b> el {fmtFecha(carga.fecha)}. Revisa el
+                comprobante, di quién pagó y apruébala.
+              </>
+            )}
+          </div>
+        )}
+        {alerta && (
+          <div className={alerta.alerta ? "alerta" : "line"} style={{ marginBottom: 12 }}>
+            {alerta.texto}
+          </div>
+        )}
+        {urlFoto && (
+          <a href={urlFoto} target="_blank" rel="noreferrer">
+            <img className="foto" src={urlFoto} alt="Comprobante del combustible" />
+          </a>
+        )}
 
         <div className="field">
           <label htmlFor="f-origen">¿Quién pagó el combustible?</label>
-          <select id="f-origen" value={origen} onChange={(e) => setOrigen(e.target.value as Origen)}>
+          <select id="f-origen" value={origen} onChange={(e) => setOrigen(e.target.value as Origen | "")}>
+            {origen === "" && <option value="">Escoge quién pagó</option>}
             <option value="Cliente">El cliente (me lo descuenta)</option>
             <option value="Propio">Yo (es gasto mío)</option>
           </select>
@@ -144,9 +187,26 @@ export default function FuelEditor({ carga, maquinas, onClose, onSaved }: Props)
           <div className="hint">Por ejemplo quién lo echó o el número del vale.</div>
         </div>
 
+        {revisar && (
+          <div className="field">
+            <label htmlFor="f-motivo">Si la rechazas, ¿por qué?</label>
+            <input id="f-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          </div>
+        )}
+
         <div className="actions">
-          <button type="submit" className="btn primary grow" disabled={guardando}>
-            {guardando ? "Guardando..." : "Guardar"}
+          {revisar && (
+            <>
+              <button type="button" className="btn primary grow" disabled={guardando} onClick={() => enviar("Aprobado")}>
+                {guardando ? "Guardando..." : "Aprobar"}
+              </button>
+              <button type="button" className="btn danger" disabled={guardando} onClick={() => enviar("Rechazado")}>
+                Rechazar
+              </button>
+            </>
+          )}
+          <button type="submit" className={revisar ? "btn" : "btn primary grow"} disabled={guardando}>
+            {guardando ? "Guardando..." : revisar ? "Guardar cambios" : "Guardar"}
           </button>
           <button type="button" className="btn" onClick={onClose} disabled={guardando}>
             Cancelar

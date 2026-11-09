@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fmtNum, hoyRD } from "@/lib/machines";
 import {
@@ -12,7 +12,7 @@ import {
   type Libreta,
   type Tramo,
 } from "@/lib/conduces";
-import { reducirImagen } from "@/lib/imagen";
+import { subirFoto, useFotoUrl } from "@/lib/fotos";
 
 export type MaquinaOperador = { machine_id: string; maquina_nombre: string };
 
@@ -25,29 +25,6 @@ type Props = {
 };
 
 const TRAMO_VACIO: Tramo = { entrada: "", salida: "" };
-
-// Sube una foto a la carpeta del operador (su id) y devuelve la ruta guardada.
-async function subirFoto(file: File, uid: string, etiqueta: string): Promise<string> {
-  const blob = await reducirImagen(file);
-  const ruta = `${uid}/${etiqueta}-${Date.now()}.jpg`;
-  const { error } = await createClient()
-    .storage.from("conduces")
-    .upload(ruta, blob, { contentType: blob.type || "image/jpeg" });
-  if (error) throw new Error(`No se pudo subir la foto: ${error.message}`);
-  return ruta;
-}
-
-function useFotoUrl(path: string | null | undefined) {
-  const [url, setUrl] = useState("");
-  useEffect(() => {
-    if (!path) return;
-    createClient()
-      .storage.from("conduces")
-      .createSignedUrl(path, 3600)
-      .then(({ data }) => setUrl(data?.signedUrl ?? ""));
-  }, [path]);
-  return url;
-}
 
 export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved }: Props) {
   const nuevo = conduce === null;

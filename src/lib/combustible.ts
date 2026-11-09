@@ -1,9 +1,11 @@
 import type { Moneda } from "./machines";
 
 export type Origen = "Cliente" | "Propio";
+export type EstadoCarga = "Pendiente" | "Aprobado" | "Rechazado";
 
 // Una carga de combustible. Si la dio el cliente, se le descuenta a la factura al precio del día 25;
 // si la compraste tú, es un gasto tuyo con su precio.
+// Las que reporta un operador nacen "Pendiente" y solo cuentan cuando el administrador las aprueba.
 export type FuelLog = {
   id: string;
   fecha: string; // AAAA-MM-DD
@@ -14,7 +16,12 @@ export type FuelLog = {
   moneda: Moneda;
   monto: number | null; // galones × precio; solo cuando hay precio
   nota: string | null;
+  estado: EstadoCarga;
+  creado_por: string | null;
+  foto_path: string | null; // foto del comprobante
+  motivo_rechazo: string | null;
   machines?: { nombre: string } | null;
+  creador?: { nombre: string | null } | null;
 };
 
 export type PreciosCorte = {

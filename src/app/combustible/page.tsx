@@ -26,7 +26,7 @@ import {
   type PreciosCorte,
 } from "@/lib/combustible";
 
-type ConduceLigero = { machine_id: string; fecha: string; horas_cobrables: number };
+type ConduceLigero = { machine_id: string; fecha: string; horas_cobrables: number; estado: string };
 
 function textoGasto(t: { DOP: number; USD: number }): string {
   const partes: string[] = [];
@@ -96,12 +96,14 @@ export default function CombustiblePage() {
     const [f, m, c, a, p] = await Promise.all([
       supabase
         .from("fuel_logs")
-        .select("*, machines(nombre)")
+        .select("*, machines(nombre), creador:perfiles!fuel_logs_creado_por_fkey(nombre)")
+        .neq("estado", "Rechazado")
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false }),
       supabase.from("machines").select("*").order("nombre"),
-      supabase.from("conduces").select("machine_id, fecha, horas_cobrables")
-        .eq("estado", "Aprobado"),
+      // Las horas aprobadas son las que cuentan; las pendientes solo se usan para la alerta de las cargas por aprobar.
+      supabase.from("conduces").select("machine_id, fecha, horas_cobrables, estado")
+        .in("estado", ["Aprobado", "Pendiente"]),
       supabase.from("acuerdos").select("*"),
       supabase.from("corte_precios").select("*").order("corte", { ascending: false }),
     ]);
@@ -141,6 +143,10 @@ export default function CombustiblePage() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  const cargasAprob = useMemo(() => cargas.filter((x) => x.estado === "Aprobado"), [cargas]);
+  const pendientes = useMemo(() => cargas.filter((x) => x.estado === "Pendiente"), [cargas]);
+  const conducesAprob = useMemo(() => conduces.filter((x) => x.estado === "Aprobado"), [conduces]);
 
   // Cortes que existen en los datos (más el de hoy), el más reciente primero.
   const cortes = useMemo(() => {
@@ -194,7 +200,7 @@ export default function CombustiblePage() {
   const preciosGuardados =
     preciosCorte != null && dNum === preciosCorte.precio_diesel_dop && tNum === preciosCorte.tasa_dolar;
 
-  const cargasDelCorte = cargas.filter((x) => corteDe(x.fecha).clave === corteActivo);
+  const cargasDelCorte = cargasAprob.filter((x) => corteDe(x.fecha).clave === corteActivo);
   const totalCorte = sumarCargas(cargasDelCorte);
 
   // Un resumen por máquina en el corte activo.
@@ -207,14 +213,14 @@ export default function CombustiblePage() {
       acumulado.set(k, v);
       return v;
     };
-    cargas.forEach((c) => (toca(c.machine_id, corteDe(c.fecha).clave).galones += c.galones));
-    conduces.forEach((c) => (toca(c.machine_id, corteDe(c.fecha).clave).horas += c.horas_cobrables));
+    cargasAprob.forEach((c) => (toca(c.machine_id, corteDe(c.fecha).clave).galones += c.galones));
+    conducesAprob.forEach((c) => (toca(c.machine_id, corteDe(c.fecha).clave).horas += c.horas_cobrables));
     const anteriores = cortes.map((c) => c.clave).filter((k) => k < corteActivo).slice(0, 3);
 
     return maquinas
       .map((m) => {
         const susCargas = cargasDelCorte.filter((c) => c.machine_id === m.id);
-        const susConduces = conduces.filter((c) => c.machine_id === m.id && corteDe(c.fecha).clave === corteActivo);
+        const susConduces = conducesAprob.filter((c) => c.machine_id === m.id && corteDe(c.fecha).clave === corteActivo);
         const horas = redondear2(susConduces.reduce((a, c) => a + c.horas_cobrables, 0));
         const t = sumarCargas(susCargas);
 
@@ -256,7 +262,54 @@ export default function CombustiblePage() {
       })
       .filter((f) => f.cuantas > 0 || f.horas > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maquinas, cargas, conduces, acuerdos, cortes, corteActivo, preciosCorte]);
+  }, [maquinas, cargasAprob, conducesAprob, acuerdos, cortes, corteActivo, preciosCorte]);
+
+  // Para cada carga por aprobar: cómo queda el consumo de esa máquina en su corte si se aprueba,
+  // contando también las horas que el operador ya reportó y aún no se aprueban.
+  const alertaPendiente = useMemo(() => {
+    const mapa = new Map<string, { texto: string; alerta: boolean }>();
+    for (const x of pendientes) {
+      const m = maquinas.find((q) => q.id === x.machine_id);
+      if (!m) continue;
+      const corte = corteDe(x.fecha).clave;
+      const delCorte = (f: string) => corteDe(f).clave === corte;
+      const galones = redondear2(
+        cargas
+          .filter((c) => c.machine_id === m.id && delCorte(c.fecha) && (c.estado === "Aprobado" || c.estado === "Pendiente"))
+          .reduce((a, c) => a + c.galones, 0)
+      );
+      const horas = redondear2(
+        conduces.filter((c) => c.machine_id === m.id && delCorte(c.fecha)).reduce((a, c) => a + c.horas_cobrables, 0)
+      );
+      const previos = cortes
+        .map((c) => c.clave)
+        .filter((k) => k < corte)
+        .slice(0, 3)
+        .map((k) => ({
+          galones: cargasAprob
+            .filter((c) => c.machine_id === m.id && corteDe(c.fecha).clave === k)
+            .reduce((a, c) => a + c.galones, 0),
+          horas: conducesAprob
+            .filter((c) => c.machine_id === m.id && corteDe(c.fecha).clave === k)
+            .reduce((a, c) => a + c.horas_cobrables, 0),
+        }));
+      const ev = evaluarConsumo(galones, horas, m.consumo_esperado, previos);
+      const pct = ev.desviacion != null ? `${ev.desviacion > 0 ? "+" : ""}${Math.round(ev.desviacion * 100)}%` : "";
+      const base = `Con esta carga, ${m.nombre} lleva ${fmtNum(galones, 2)} gal en ${fmtNum(horas, 2)} h del corte`;
+      if (ev.nivel === "alto")
+        mapa.set(x.id, {
+          alerta: true,
+          texto: `${base}: ${fmtNum(ev.gph ?? 0, 2)} gal/h contra ${fmtNum(ev.referencia ?? 0, 2)} normal (${pct}). Echó más combustible de lo que sus horas justifican. Revisa el comprobante y las horas antes de aprobar.`,
+        });
+      else if (ev.nivel === "sin_horas")
+        mapa.set(x.id, { alerta: true, texto: `${base}. Hay combustible pero el operador no ha reportado horas de esta máquina en el corte.` });
+      else if (ev.nivel === "ok")
+        mapa.set(x.id, { alerta: false, texto: `${base}: ${fmtNum(ev.gph ?? 0, 2)} gal/h, dentro de lo normal (${fmtNum(ev.referencia ?? 0, 2)}).` });
+      else if (ev.nivel === "pocas_horas" || ev.nivel === "sin_referencia")
+        mapa.set(x.id, { alerta: false, texto: `${base}. Todavía hay pocas horas o no hay referencia para comparar el consumo.` });
+    }
+    return mapa;
+  }, [pendientes, maquinas, cargas, conduces, cargasAprob, conducesAprob, cortes]);
 
   const alertas = filas
     .map((f) => ({ f, msg: mensajeConsumo(f.ev, f.horas) }))
@@ -273,6 +326,39 @@ export default function CombustiblePage() {
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      {pendientes.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Por aprobar ({pendientes.length})</h2>
+          {pendientes.map((x) => {
+            const al = alertaPendiente.get(x.id);
+            return (
+              <button key={x.id} className="card" onClick={() => setEditando(x)}>
+                <div className="row">
+                  <div>
+                    <h2>{x.machines?.nombre ?? "Máquina"}</h2>
+                    <span className="pill obra">Por aprobar</span>
+                    {al?.alerta && (
+                      <span className="pill taller" style={{ marginLeft: 6 }}>
+                        Consumo alto
+                      </span>
+                    )}
+                    <div className="line">
+                      {[x.creador?.nombre || "Operador", fmtFecha(x.fecha), x.nota].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <div className="horas" style={{ fontSize: 22 }}>
+                    {fmtNum(x.galones, 2)}
+                    <small> gal</small>
+                  </div>
+                </div>
+                {al && <div className={al.alerta ? "alerta" : "line"}>{al.texto}</div>}
+                {!x.foto_path && <div className="aviso">Sin foto del comprobante.</div>}
+              </button>
+            );
+          })}
+        </>
+      )}
 
       <div className="field">
         <label htmlFor="cb-corte">Corte</label>
@@ -424,6 +510,7 @@ export default function CombustiblePage() {
         <FuelEditor
           carga={editando}
           maquinas={maquinas}
+          alerta={editando ? alertaPendiente.get(editando.id) ?? null : null}
           onClose={() => setEditando(undefined)}
           onSaved={() => {
             setEditando(undefined);
