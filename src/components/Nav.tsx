@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-type Seccion = "maquinas" | "conduces" | "combustible" | "acuerdos" | "operadores" | "pagos";
+type Seccion = "maquinas" | "conduces" | "combustible" | "mantenimiento" | "acuerdos" | "operadores" | "pagos";
 
 export default function Nav({ activa }: { activa: Seccion }) {
   const [correo, setCorreo] = useState("");
   const [porAprobar, setPorAprobar] = useState(0);
   const [gasoilPorAprobar, setGasoilPorAprobar] = useState(0);
+  const [fallasNuevas, setFallasNuevas] = useState(0);
 
   useEffect(() => {
     const supabase = createClient();
@@ -26,6 +27,12 @@ export default function Nav({ activa }: { activa: Seccion }) {
       .select("id", { count: "exact", head: true })
       .eq("estado", "Pendiente")
       .then(({ count }) => setGasoilPorAprobar(count ?? 0));
+    // Cuántas fallas reportadas por operadores todavía no has tomado.
+    supabase
+      .from("reportes_falla")
+      .select("id", { count: "exact", head: true })
+      .eq("estado", "Nuevo")
+      .then(({ count }) => setFallasNuevas(count ?? 0));
   }, []);
 
   async function salir() {
@@ -46,6 +53,7 @@ export default function Nav({ activa }: { activa: Seccion }) {
         {tab("/", "maquinas", "Máquinas")}
         {tab("/conduces", "conduces", "Conduces", porAprobar > 0 ? ` (${porAprobar})` : "")}
         {tab("/combustible", "combustible", "Combustible", gasoilPorAprobar > 0 ? ` (${gasoilPorAprobar})` : "")}
+        {tab("/mantenimiento", "mantenimiento", "Mantenimiento", fallasNuevas > 0 ? ` (${fallasNuevas})` : "")}
         {tab("/acuerdos", "acuerdos", "Acuerdos")}
         {tab("/operadores", "operadores", "Operadores")}
         {tab("/pagos", "pagos", "Pagos")}

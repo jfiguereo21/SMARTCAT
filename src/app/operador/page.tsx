@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import OperadorForm, { type MaquinaOperador } from "@/components/OperadorForm";
 import FuelOperadorForm from "@/components/FuelOperadorForm";
 import MiPago from "@/components/MiPago";
+import FallaOperadorForm from "@/components/FallaOperadorForm";
+import type { ReporteFalla } from "@/lib/fallas";
 import type { FuelLog } from "@/lib/combustible";
 import { fmtNum } from "@/lib/machines";
 import { fmtFecha, type Conduce } from "@/lib/conduces";
@@ -17,7 +19,10 @@ export default function OperadorPage() {
   const [maquinas, setMaquinas] = useState<MaquinaOperador[]>([]);
   const [conduces, setConduces] = useState<Conduce[]>([]);
   const [cargas, setCargas] = useState<FuelLog[]>([]);
-  const [vista, setVista] = useState<"horas" | "combustible">("horas");
+  const [fallas, setFallas] = useState<ReporteFalla[]>([]);
+  // undefined = cerrado, null = reporte nuevo, ReporteFalla = abierto
+  const [falla, setFalla] = useState<ReporteFalla | null | undefined>(undefined);
+  const [vista, setVista] = useState<"horas" | "combustible" | "fallas">("horas");
   // undefined = cerrado, null = carga nueva, FuelLog = abierta
   const [gasoil, setGasoil] = useState<FuelLog | null | undefined>(undefined);
   const [cargando, setCargando] = useState(true);
@@ -30,7 +35,7 @@ export default function OperadorPage() {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     setUid(u.user.id);
-    const [p, m, c, f] = await Promise.all([
+    const [p, m, c, f, r] = await Promise.all([
       supabase.from("perfiles").select("nombre, rol").eq("user_id", u.user.id).maybeSingle(),
       supabase.from("operador_maquinas").select("machine_id, maquina_nombre").eq("user_id", u.user.id),
       supabase
@@ -45,8 +50,13 @@ export default function OperadorPage() {
         .eq("creado_por", u.user.id)
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false }),
+      supabase
+        .from("reportes_falla")
+        .select("*")
+        .eq("creado_por", u.user.id)
+        .order("created_at", { ascending: false }),
     ]);
-    const fallo = p.error ?? m.error ?? c.error ?? f.error;
+    const fallo = p.error ?? m.error ?? c.error ?? f.error ?? r.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -55,6 +65,7 @@ export default function OperadorPage() {
       setMaquinas((m.data ?? []) as MaquinaOperador[]);
       setConduces(((c.data ?? []) as Conduce[]).map((x) => ({ ...x, horas_cobrables: Number(x.horas_cobrables) })));
       setCargas(((f.data ?? []) as FuelLog[]).map((x) => ({ ...x, galones: Number(x.galones) })));
+      setFallas((r.data ?? []) as ReporteFalla[]);
     }
     setCargando(false);
   }, []);
@@ -105,27 +116,19 @@ export default function OperadorPage() {
             <button className={vista === "combustible" ? "tab on" : "tab"} onClick={() => setVista("combustible")}>
               Combustible
             </button>
+            <button className={vista === "fallas" ? "tab on" : "tab"} onClick={() => setVista("fallas")}>
+              Fallas
+            </button>
           </div>
 
-          {vista === "horas" ? (
-            <button
-              className="btn primary"
-              style={{ width: "100%", minHeight: 56, fontSize: 18, marginBottom: 16 }}
-              onClick={() => setAbierto(null)}
-              disabled={maquinas.length === 0}
-            >
-              + Reportar el día
-            </button>
-          ) : (
-            <button
-              className="btn primary"
-              style={{ width: "100%", minHeight: 56, fontSize: 18, marginBottom: 16 }}
-              onClick={() => setGasoil(null)}
-              disabled={maquinas.length === 0}
-            >
-              + Cargar combustible
-            </button>
-          )}
+          <button
+            className="btn primary"
+            style={{ width: "100%", minHeight: 56, fontSize: 18, marginBottom: 16 }}
+            onClick={() => (vista === "horas" ? setAbierto(null) : vista === "combustible" ? setGasoil(null) : setFalla(null))}
+            disabled={maquinas.length === 0}
+          >
+            {vista === "horas" ? "+ Reportar el día" : vista === "combustible" ? "+ Cargar combustible" : "+ Reportar una falla"}
+          </button>
           {!cargando && maquinas.length === 0 && (
             <div className="aviso" style={{ marginBottom: 12 }}>
               Todavía no tienes una máquina asignada. Habla con el administrador.
@@ -139,6 +142,33 @@ export default function OperadorPage() {
           {vista === "combustible" && !cargando && !error && cargas.length === 0 && maquinas.length > 0 && (
             <div className="empty">Aún no has cargado combustible.</div>
           )}
+
+          {vista === "fallas" && !cargando && !error && fallas.length === 0 && maquinas.length > 0 && (
+            <div className="empty">No has reportado ninguna falla.</div>
+          )}
+
+          {vista === "fallas" &&
+            fallas.map((x) => (
+              <button key={x.id} className="card" onClick={() => setFalla(x)}>
+                <div className="row">
+                  <div>
+                    <h2>{x.descripcion.length > 60 ? `${x.descripcion.slice(0, 60)}…` : x.descripcion}</h2>
+                    <span className={x.estado === "Resuelto" ? "pill disp" : x.estado === "Nuevo" ? "pill obra" : "pill taller"}>
+                      {x.estado === "Nuevo" ? "Enviado al administrador" : x.estado}
+                    </span>
+                    {x.urgencia === "Debe parar" && (
+                      <span className="pill taller" style={{ marginLeft: 6 }}>
+                        Debe parar
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="line">
+                  {fmtFecha(x.fecha)} · {x.fotos.length} {x.fotos.length === 1 ? "foto" : "fotos"}
+                  {x.video_path ? " · video" : ""}
+                </div>
+              </button>
+            ))}
 
           {vista === "combustible" &&
             cargas.map((x) => (
@@ -207,6 +237,19 @@ export default function OperadorPage() {
           onClose={() => setGasoil(undefined)}
           onSaved={() => {
             setGasoil(undefined);
+            cargar();
+          }}
+        />
+      )}
+
+      {falla !== undefined && (
+        <FallaOperadorForm
+          reporte={falla}
+          uid={uid}
+          maquinas={maquinas}
+          onClose={() => setFalla(undefined)}
+          onSaved={() => {
+            setFalla(undefined);
             cargar();
           }}
         />
