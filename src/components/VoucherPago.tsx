@@ -15,6 +15,31 @@ export function VerVoucher({ path }: { path: string }) {
   );
 }
 
+// Para el operador: un botón pequeño que abre el voucher en una ventana, sin ocupar espacio en la pantalla.
+export function BotonVoucher({ path }: { path: string }) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <>
+      <button type="button" className="btn small" onClick={() => setAbierto(true)}>
+        Ver voucher
+      </button>
+      {abierto && (
+        <div className="sheet-bg" onClick={() => setAbierto(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <h2>Voucher del pago</h2>
+            <VerVoucher path={path} />
+            <div className="actions">
+              <button type="button" className="btn grow" onClick={() => setAbierto(false)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Selector del voucher para usar mientras se registra un pago.
 export function CampoVoucher({
   id,

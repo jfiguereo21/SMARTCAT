@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fmtMonto, fmtNum, hoyRD } from "@/lib/machines";
 import type { Conduce } from "@/lib/conduces";
-import { VerVoucher } from "@/components/VoucherPago";
+import { BotonVoucher } from "@/components/VoucherPago";
 import {
   aAjusteRow,
   aDeudaRow,
@@ -173,14 +173,15 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
                   <br />
                   <span className="pill disp">Pagado el {fmtCorta(p.fecha_pago)}</span>
                 </span>
-                <b>{dinero(p.neto)}</b>
+                <span style={{ textAlign: "right" }}>
+                  <b>{dinero(p.neto)}</b>
+                  {p.voucher_path && (
+                    <div style={{ marginTop: 6 }}>
+                      <BotonVoucher path={p.voucher_path} />
+                    </div>
+                  )}
+                </span>
               </div>
-              {p.voucher_path && (
-                <div style={{ marginTop: 6 }}>
-                  <div className="hint">Voucher del pago</div>
-                  <VerVoucher path={p.voucher_path} />
-                </div>
-              )}
             </div>
           ))}
         </div>
