@@ -24,6 +24,8 @@ export type Conduce = {
   horas_cobrables: number;
   foto_path: string | null;
   foto_firmada_path: string | null;
+  horometro: number | null; // lo que marcó el horómetro al terminar el día
+  foto_horometro_path: string | null;
   notas: string | null;
   estado: EstadoConduce;
   creado_por: string | null;

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { fmtNum, hoyRD } from "@/lib/machines";
+import { aNumero, fmtNum, hoyRD } from "@/lib/machines";
 import {
   aHoras,
   fmtFecha,
@@ -48,6 +48,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
   const [notas, setNotas] = useState(conduce?.notas ?? "");
   const [fotoSinFirma, setFotoSinFirma] = useState<File | null>(null);
   const [fotoFirmada, setFotoFirmada] = useState<File | null>(null);
+  const [horometro, setHorometro] = useState(conduce?.horometro != null ? String(conduce.horometro) : "");
+  const [fotoHoro, setFotoHoro] = useState<File | null>(null);
 
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -55,6 +57,7 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
 
   const urlSinFirma = useFotoUrl(conduce?.foto_path);
   const urlFirmada = useFotoUrl(conduce?.foto_firmada_path);
+  const urlHoro = useFotoUrl(conduce?.foto_horometro_path);
 
   const calculadas = sumaTramos(tramos);
   const escritasNum = aHoras(escritas);
@@ -85,6 +88,9 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
       if (tramosUsados.length === 0) return setError("Pon la hora de entrada y la de salida.");
       if (escritas.trim() !== "" && escritasNum == null)
         return setError("El total del conduce tiene que ser un número, por ejemplo 8 o 7:30.");
+      const hNum = aNumero(horometro);
+      if (hNum == null || hNum <= 0) return setError("Escribe lo que marca el horómetro, por ejemplo 4523.7.");
+      if (!fotoHoro && !conduce?.foto_horometro_path) return setError("Sube la foto del horómetro, donde se vean los números.");
     } else if (!fotoFirmada) {
       return setError("Escoge la foto del conduce firmado.");
     }
@@ -96,6 +102,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
       let firmadaPath = conduce?.foto_firmada_path ?? null;
       if (fotoSinFirma && !soloFirma) fotoPath = await subirFoto(fotoSinFirma, uid, `${etiqueta}-sinfirma`);
       if (fotoFirmada) firmadaPath = await subirFoto(fotoFirmada, uid, `${etiqueta}-firmado`);
+      let horoPath = conduce?.foto_horometro_path ?? null;
+      if (fotoHoro && !soloFirma) horoPath = await subirFoto(fotoHoro, uid, `${etiqueta}-horometro`);
 
       const supabase = createClient();
       let err;
@@ -115,6 +123,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
           horas_escritas: escritasNum,
           foto_path: fotoPath,
           foto_firmada_path: firmadaPath,
+          horometro: aNumero(horometro),
+          foto_horometro_path: horoPath,
           notas: notas.trim() || null,
         };
         ({ error: err } = nuevo
@@ -267,6 +277,22 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
               <label htmlFor="o-escritas">Total que escribiste en el conduce (opcional)</label>
               <input id="o-escritas" inputMode="decimal" value={escritas} onChange={(e) => setEscritas(e.target.value)} />
               <div className="hint">Puedes poner 8, 7.5 o 7:30. Las horas se calculan solas con tus entradas y salidas.</div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="o-horo">Horómetro: lo que marca al terminar el día</label>
+              <input id="o-horo" inputMode="decimal" value={horometro} onChange={(e) => setHorometro(e.target.value)} />
+              <div className="hint">Con el motor apagado. Escribe todos los números que marca el reloj, con el decimal.</div>
+            </div>
+            <div className="field">
+              <label htmlFor="o-horo-foto">Foto del horómetro</label>
+              {urlHoro && !fotoHoro && (
+                <a href={urlHoro} target="_blank" rel="noreferrer">
+                  <img className="foto" src={urlHoro} alt="Horómetro" />
+                </a>
+              )}
+              <input id="o-horo-foto" type="file" accept="image/*" onChange={(e) => setFotoHoro(e.target.files?.[0] ?? null)} />
+              <div className="hint">Que se vean bien los números.</div>
             </div>
 
             <div className="field">

@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { fmtNum, hoyRD, type Machine } from "@/lib/machines";
+import { aNumero, fmtNum, hoyRD, type Machine } from "@/lib/machines";
+import { avisosConduce } from "@/lib/horometro";
+import { useFotoUrl } from "@/lib/fotos";
 import {
   aHoras,
   horasCobrables,
@@ -23,13 +25,14 @@ type Props = {
   conduce: Conduce | null; // null = conduce nuevo
   maquinas: Machine[];
   clientes: Cliente[];
+  todos: Conduce[]; // todos los conduces, para cruzar el horómetro con las horas
   onClose: () => void;
   onSaved: () => void;
 };
 
 const TRAMO_VACIO: Tramo = { entrada: "", salida: "" };
 
-export default function ConduceEditor({ conduce, maquinas, clientes, onClose, onSaved }: Props) {
+export default function ConduceEditor({ conduce, maquinas, clientes, todos, onClose, onSaved }: Props) {
   const nuevo = conduce === null;
   const [libreta, setLibreta] = useState<Libreta>(conduce?.libreta ?? "FIPEC");
   const [numero, setNumero] = useState(conduce ? String(conduce.numero) : "");
@@ -47,6 +50,8 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
     conduce?.horas_escritas != null ? String(conduce.horas_escritas) : ""
   );
   const [firmado, setFirmado] = useState(conduce?.firmado ?? false);
+  const [horometro, setHorometro] = useState(conduce?.horometro != null ? String(conduce.horometro) : "");
+  const urlHoro = useFotoUrl(conduce?.foto_horometro_path);
   const [notas, setNotas] = useState(conduce?.notas ?? "");
 
   const [fotoNueva, setFotoNueva] = useState<File | null>(null);
@@ -80,6 +85,24 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
   const escritasNum = aHoras(escritas);
   const cobrables = horasCobrables(firmado, calculadas, escritasNum);
   const desfase = noCuadra(calculadas, escritasNum);
+  const horoNum = aNumero(horometro);
+
+  // Cruza el horómetro de este conduce con la lectura anterior, los conduces y lo que ya marca la máquina.
+  const avisosHoro =
+    machineId && (conduce != null || horoNum != null)
+      ? avisosConduce(
+          { id: conduce?.id ?? "nuevo", machine_id: machineId, fecha, horometro: horoNum },
+          todos.map((c) => ({
+            id: c.id,
+            machine_id: c.machine_id,
+            fecha: c.fecha,
+            horas: Number(c.horas_cobrables),
+            estado: c.estado,
+            horometro: c.horometro == null ? null : Number(c.horometro),
+          })),
+          maquinas.find((m) => m.id === machineId)?.horometro ?? null
+        )
+      : [];
 
   function cambiarTramo(i: number, campo: keyof Tramo, valor: string) {
     setTramos((prev) => prev.map((t, j) => (j === i ? { ...t, [campo]: valor } : t)));
@@ -115,6 +138,8 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
       return setError("El total del operador tiene que ser un número, por ejemplo 8 o 7:30.");
     if (tramosUsados.length === 0 && escritasNum == null)
       return setError("Pon al menos un tramo de horas o el total que escribió el operador.");
+    if (horometro.trim() !== "" && (horoNum == null || horoNum <= 0))
+      return setError("Lo que marca el horómetro tiene que ser un número, por ejemplo 4523.7.");
 
     setGuardando(true);
     const supabase = createClient();
@@ -150,6 +175,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
       horas_escritas: escritasNum,
       firmado,
       foto_path: fotoPath,
+      horometro: horoNum,
       notas: notas.trim() || null,
       ...(nuevoEstado
         ? { estado: nuevoEstado, motivo_rechazo: nuevoEstado === "Rechazado" ? motivo.trim() : null }
@@ -346,6 +372,22 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
             </div>
           )}
           {!firmado && !desfase && <div className="aviso">Todavía sin firma del ingeniero.</div>}
+        </div>
+
+        <div className="field">
+          <label htmlFor="c-horo">Horómetro: lo que marca al terminar el día</label>
+          <input id="c-horo" inputMode="decimal" value={horometro} onChange={(e) => setHorometro(e.target.value)} />
+          <div className="hint">Mira la foto y corrige el número si el operador se equivocó al escribirlo.</div>
+          {avisosHoro.map((a, i) => (
+            <div key={i} className={a.alerta ? "alerta" : "line"} style={{ marginTop: 6 }}>
+              {a.texto}
+            </div>
+          ))}
+          {urlHoro && (
+            <a href={urlHoro} target="_blank" rel="noreferrer">
+              <img className="foto" src={urlHoro} alt="Horómetro" style={{ marginTop: 8 }} />
+            </a>
+          )}
         </div>
 
         <div className="field">

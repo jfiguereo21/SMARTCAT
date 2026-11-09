@@ -215,6 +215,7 @@ export default function ConducesPage() {
           conduce={editando}
           maquinas={maquinas}
           clientes={clientes}
+          todos={conduces}
           onClose={() => setEditando(undefined)}
           onSaved={() => {
             setEditando(undefined);
