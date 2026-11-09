@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import OperadorForm, { type MaquinaOperador } from "@/components/OperadorForm";
 import FuelOperadorForm from "@/components/FuelOperadorForm";
+import MiPago from "@/components/MiPago";
 import type { FuelLog } from "@/lib/combustible";
 import { fmtNum, hoyRD } from "@/lib/machines";
 import { corteDe, fmtFecha, resumenHoras, type Conduce } from "@/lib/conduces";
@@ -98,6 +99,8 @@ export default function OperadorPage() {
         <div className="empty">Esta pantalla es para los operadores. Tú trabajas desde el panel.</div>
       ) : (
         <>
+          {rol === "operador" && uid && <MiPago uid={uid} conduces={conduces} />}
+
           <div className="totales">
             <div className="total">
               <div className="total-n">Hoy</div>

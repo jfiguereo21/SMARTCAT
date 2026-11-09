@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-type Seccion = "maquinas" | "conduces" | "combustible" | "acuerdos" | "operadores";
+type Seccion = "maquinas" | "conduces" | "combustible" | "acuerdos" | "operadores" | "pagos";
 
 export default function Nav({ activa }: { activa: Seccion }) {
   const [correo, setCorreo] = useState("");
@@ -48,6 +48,7 @@ export default function Nav({ activa }: { activa: Seccion }) {
         {tab("/combustible", "combustible", "Combustible", gasoilPorAprobar > 0 ? ` (${gasoilPorAprobar})` : "")}
         {tab("/acuerdos", "acuerdos", "Acuerdos")}
         {tab("/operadores", "operadores", "Operadores")}
+        {tab("/pagos", "pagos", "Pagos")}
       </nav>
       <div className="who">
         <span>{correo}</span>

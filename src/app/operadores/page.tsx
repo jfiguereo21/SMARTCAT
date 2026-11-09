@@ -3,10 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
-import { fmtNum, hoyRD, type Machine } from "@/lib/machines";
+import { aNumero, fmtMonto, fmtNum, hoyRD, type Machine } from "@/lib/machines";
 import { corteDe, resumenHoras, type Conduce } from "@/lib/conduces";
 
-type Perfil = { user_id: string; rol: "admin" | "operador"; nombre: string | null; activo: boolean };
+type Perfil = {
+  user_id: string;
+  rol: "admin" | "operador";
+  nombre: string | null;
+  activo: boolean;
+  tarifa_hora: number | null;
+  paga_desde: string | null;
+  dieta_semanal: number;
+  combustible_semanal: number;
+};
 type Asignacion = { user_id: string; machine_id: string };
 
 function EditorOperador({
@@ -24,6 +33,10 @@ function EditorOperador({
 }) {
   const [nombre, setNombre] = useState(perfil.nombre ?? "");
   const [activo, setActivo] = useState(perfil.activo);
+  const [tarifa, setTarifa] = useState(perfil.tarifa_hora != null ? String(perfil.tarifa_hora) : "");
+  const [pagaDesde, setPagaDesde] = useState(perfil.paga_desde ?? "");
+  const [dieta, setDieta] = useState(String(perfil.dieta_semanal ?? 0));
+  const [combustible, setCombustible] = useState(String(perfil.combustible_semanal ?? 0));
   const [elegidas, setElegidas] = useState<string[]>(asignadas);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -36,11 +49,24 @@ function EditorOperador({
     e.preventDefault();
     setError("");
     if (nombre.trim() === "") return setError("Ponle el nombre del operador.");
+    const t = tarifa.trim() === "" ? null : aNumero(tarifa);
+    const di = aNumero(dieta.trim() === "" ? "0" : dieta);
+    const co = aNumero(combustible.trim() === "" ? "0" : combustible);
+    if (t != null && t < 0) return setError("La tarifa por hora no puede ser negativa.");
+    if (tarifa.trim() !== "" && t == null) return setError("La tarifa por hora tiene que ser un número, por ejemplo 350.");
+    if (di == null || di < 0 || co == null || co < 0) return setError("La dieta y el combustible tienen que ser números (puede ser 0).");
     setGuardando(true);
     const supabase = createClient();
     const { error: e1 } = await supabase
       .from("perfiles")
-      .update({ nombre: nombre.trim(), activo })
+      .update({
+        nombre: nombre.trim(),
+        activo,
+        tarifa_hora: t,
+        paga_desde: pagaDesde === "" ? null : pagaDesde,
+        dieta_semanal: di,
+        combustible_semanal: co,
+      })
       .eq("user_id", perfil.user_id);
     if (e1) {
       setGuardando(false);
@@ -77,6 +103,33 @@ function EditorOperador({
         <div className="field">
           <label htmlFor="op-nombre">Nombre</label>
           <input id="op-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+        </div>
+
+        <div className="resumen">
+          <b>Lo que cobra</b>
+          <div className="grid2" style={{ marginTop: 8 }}>
+            <div className="field">
+              <label htmlFor="op-tarifa">Precio por hora (RD$)</label>
+              <input id="op-tarifa" inputMode="decimal" value={tarifa} onChange={(e) => setTarifa(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="op-desde">Cobra desde</label>
+              <input id="op-desde" type="date" value={pagaDesde} onChange={(e) => setPagaDesde(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid2">
+            <div className="field">
+              <label htmlFor="op-dieta">Dieta por semana (RD$)</label>
+              <input id="op-dieta" inputMode="decimal" value={dieta} onChange={(e) => setDieta(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="op-comb">Combustible por semana (RD$)</label>
+              <input id="op-comb" inputMode="decimal" value={combustible} onChange={(e) => setCombustible(e.target.value)} />
+            </div>
+          </div>
+          <div className="hint">
+            El precio por hora es el que acordaste con el operador. Antes de la fecha "cobra desde" no se le paga nada.
+          </div>
         </div>
 
         <div className="field">
@@ -120,7 +173,10 @@ export default function OperadoresPage() {
   const cargar = useCallback(async () => {
     const supabase = createClient();
     const [p, a, m, c] = await Promise.all([
-      supabase.from("perfiles").select("user_id, rol, nombre, activo").order("nombre"),
+      supabase
+        .from("perfiles")
+        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_semanal, combustible_semanal")
+        .order("nombre"),
       supabase.from("operador_maquinas").select("user_id, machine_id"),
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("conduces").select("creado_por, fecha, estado, horas_cobrables"),
@@ -129,7 +185,14 @@ export default function OperadoresPage() {
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
-      setPerfiles((p.data ?? []) as Perfil[]);
+      setPerfiles(
+        ((p.data ?? []) as Perfil[]).map((x) => ({
+          ...x,
+          tarifa_hora: x.tarifa_hora == null ? null : Number(x.tarifa_hora),
+          dieta_semanal: Number(x.dieta_semanal ?? 0),
+          combustible_semanal: Number(x.combustible_semanal ?? 0),
+        }))
+      );
       setAsignaciones((a.data ?? []) as Asignacion[]);
       setMaquinas((m.data ?? []) as Machine[]);
       setConduces(
@@ -196,6 +259,9 @@ export default function OperadoresPage() {
               </div>
             </div>
             <div className="line">{nombres || "Sin máquinas asignadas"}</div>
+            <div className="line">
+              {o.tarifa_hora != null ? `${fmtMonto(o.tarifa_hora, "DOP")} por hora` : "Sin precio por hora todavía"}
+            </div>
             <div className="line">
               Corte {etiquetaCorte}: {fmtNum(h?.pendientes ?? 0, 2)} h por aprobar
               {h && h.rechazadas > 0 ? ` · ${fmtNum(h.rechazadas, 2)} h rechazadas` : ""}
