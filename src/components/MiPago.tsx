@@ -10,21 +10,15 @@ import {
   aDescuentoRow,
   aPagoRow,
   aPerfilPago,
-  calcularDias,
   fmtCorta,
-  planDescuentos,
-  quincenaAnterior,
-  quincenaDe,
   redondear2,
   resumenPendiente,
   saldoDeuda,
-  totalizar,
   type AjusteRow,
   type DescuentoRow,
   type DeudaRow,
   type PagoRow,
   type PerfilPago,
-  type Quincena,
 } from "@/lib/pagos";
 
 const dinero = (n: number) => fmtMonto(n, "DOP");
@@ -84,8 +78,6 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
   if (error) return <div className="error">{error}</div>;
   if (!perfil) return null;
 
-  const actual = quincenaDe(hoy);
-  const anterior = quincenaAnterior(actual);
   const res = resumenPendiente({
     perfil,
     hoy,
@@ -96,84 +88,13 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
     descuentos,
     pagos,
   });
-  const pagoDe = (q: Quincena) =>
-    pagos.find((p) => p.tipo === "quincena" && p.periodo_inicio === q.inicio && p.periodo_fin === q.fin);
-
-  function bloque(q: Quincena, titulo: string) {
-    const pago = pagoDe(q);
-    const dias = calcularDias({
-      inicio: q.inicio,
-      fin: q.fin,
-      pagaDesde: perfil!.paga_desde,
-      hoy,
-      conduces: conducesDia,
-      feriados,
-      ajustes: ajustesMapa,
-    });
-    const tot = totalizar(dias, perfil!.tarifa_hora);
-    const plan = planDescuentos(deudas, descuentos, tot.bruto);
-    const descontar = redondear2(plan.reduce((a, l) => a + l.descuento, 0));
-    return (
-      <div className="resumen" key={q.inicio}>
-        <b>{titulo}</b>
-        <div className="line" style={{ margin: "2px 0 6px" }}>
-          {q.etiqueta}
-        </div>
-        {pago ? (
-          <>
-            <div>
-              <span className="pill disp">Pagado el {fmtCorta(pago.fecha_pago)}</span>
-            </div>
-            <div>
-              {fmtNum(pago.horas, 2)} h · ganaste {dinero(pago.bruto)}
-            </div>
-            {pago.descuento_deudas > 0 && <div>Descontado por deudas: {dinero(pago.descuento_deudas)}</div>}
-            <div>
-              Te pagaron: <b>{dinero(pago.neto)}</b>
-            </div>
-          </>
-        ) : (
-          <>
-            {perfil!.paga_desde == null && (
-              <div className="aviso">
-                El administrador todavía no ha puesto desde cuándo empiezas a cobrar. Cuando lo ponga, aquí van a salir
-                tus horas.
-              </div>
-            )}
-            <div>
-              Horas acumuladas: <b>{fmtNum(tot.horas, 2)} h</b>
-            </div>
-            {perfil!.tarifa_hora != null ? (
-              <>
-                <div>
-                  Ganado hasta hoy: <b>{dinero(tot.bruto)}</b> ({dinero(perfil!.tarifa_hora)} por hora)
-                </div>
-                {descontar > 0 && <div>Descuento por deudas: {dinero(descontar)}</div>}
-                <div>
-                  Te tocaría cobrar: <b>{dinero(redondear2(tot.bruto - descontar))}</b>
-                </div>
-              </>
-            ) : (
-              <div className="aviso">Tu precio por hora todavía no está puesto.</div>
-            )}
-            {tot.pendientes > 0 && (
-              <div className="aviso">{fmtNum(tot.pendientes, 2)} h todavía esperan que el administrador apruebe tu conduce.</div>
-            )}
-            <div>
-              <span className="pill obra">Sin pagar todavía</span>
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
 
   const debeTotal = redondear2(deudas.reduce((a, x) => a + saldoDeuda(x, descuentos), 0));
   const recientes = pagos.slice(0, 5);
 
   return (
     <>
-      <div className="totales">
+      <div className="totales dos">
         <div className="total">
           <div className="total-n">Horas acumuladas</div>
           <div className="total-h">{fmtNum(res.horas, 2)} h</div>
@@ -193,6 +114,19 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
           <div className="total-c">con dieta y combustible, menos deudas</div>
         </div>
       </div>
+      {perfil.paga_desde == null ? (
+        <div className="aviso" style={{ marginBottom: 12 }}>
+          El administrador todavía no ha puesto desde cuándo empiezas a cobrar. Cuando lo ponga, aquí van a salir tus
+          horas.
+        </div>
+      ) : (
+        res.proximoPago && (
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Próximo pago: {fmtCorta(res.proximoPago)}
+            {res.horasPorAprobar > 0 ? ". Tienes conduces esperando aprobación; se suman cuando el administrador los apruebe." : ""}
+          </div>
+        )
+      )}
       {perfil.tarifa_hora == null && (
         <div className="aviso" style={{ marginBottom: 12 }}>
           Tu precio por hora todavía no está puesto.
@@ -207,9 +141,6 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
           </div>
         </div>
       )}
-
-      {!pagoDe(anterior) && perfil.paga_desde != null && perfil.paga_desde <= anterior.fin && bloque(anterior, "Quincena anterior")}
-      {bloque(actual, "Quincena en curso")}
 
       {debeTotal > 0 && (
         <div className="resumen">

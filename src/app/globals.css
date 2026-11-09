@@ -402,7 +402,17 @@ textarea {
   margin-bottom: 16px;
 }
 
+.totales.dos {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.totales.dos .total-h {
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+
 .total {
+  min-width: 0;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;

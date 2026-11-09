@@ -354,6 +354,7 @@ export type ResumenPendiente = {
   debe: number; // lo que debe en total ahora mismo
   total: number; // ganado + dieta y combustible - descuento
   horasPorAprobar: number;
+  proximoPago: string | null; // fecha en que se paga la quincena más vieja sin pagar
 };
 
 export function resumenPendiente(e: {
@@ -374,6 +375,7 @@ export function resumenPendiente(e: {
     debe: redondear2(e.deudas.reduce((a, d) => a + saldoDeuda(d, e.descuentos), 0)),
     total: 0,
     horasPorAprobar: 0,
+    proximoPago: null,
   };
   if (!e.perfil.paga_desde) return vacio;
 
@@ -398,12 +400,14 @@ export function resumenPendiente(e: {
   let ganado = 0;
   let descuento = 0;
   let porAprobar = 0;
+  let proximoPago: string | null = null;
   const corriendo: DescuentoDeuda[] = [...e.descuentos];
   for (const [k, ds] of [...grupos.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
     const [inicio, fin] = k.split("|");
     porAprobar += totalizar(ds, e.perfil.tarifa_hora).pendientes;
     if (e.pagos.some((p) => p.tipo === "quincena" && p.periodo_inicio === inicio && p.periodo_fin === fin)) continue;
     const t = totalizar(ds, e.perfil.tarifa_hora);
+    if (proximoPago == null) proximoPago = quincenaDe(inicio).fechaPago;
     horas += t.horas;
     ganado += t.bruto;
     const plan = planDescuentos(e.deudas, corriendo, t.bruto);
@@ -430,5 +434,6 @@ export function resumenPendiente(e: {
     debe: vacio.debe,
     total: redondear2(ganado + campo.dieta + campo.combustible - descuento),
     horasPorAprobar: redondear2(porAprobar),
+    proximoPago,
   };
 }
