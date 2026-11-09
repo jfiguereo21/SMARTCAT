@@ -100,7 +100,6 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
       ajustes: ajustesMapa,
     });
     const tot = totalizar(dias, perfil!.tarifa_hora);
-    if (!pago && dias.length === 0) return null;
     const plan = planDescuentos(deudas, descuentos, tot.bruto);
     const descontar = redondear2(plan.reduce((a, l) => a + l.descuento, 0));
     return (
@@ -124,6 +123,12 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
           </>
         ) : (
           <>
+            {perfil!.paga_desde == null && (
+              <div className="aviso">
+                El administrador todavía no ha puesto desde cuándo empiezas a cobrar. Cuando lo ponga, aquí van a salir
+                tus horas.
+              </div>
+            )}
             <div>
               Horas acumuladas: <b>{fmtNum(tot.horas, 2)} h</b>
             </div>
@@ -157,7 +162,7 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
 
   return (
     <>
-      {!pagoDe(anterior) && bloque(anterior, "Quincena anterior")}
+      {!pagoDe(anterior) && perfil.paga_desde != null && perfil.paga_desde <= anterior.fin && bloque(anterior, "Quincena anterior")}
       {bloque(actual, "Quincena en curso")}
 
       {debeTotal > 0 && (
