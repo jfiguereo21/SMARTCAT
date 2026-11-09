@@ -7,6 +7,8 @@ import OperadorForm, { type MaquinaOperador } from "@/components/OperadorForm";
 import FuelOperadorForm from "@/components/FuelOperadorForm";
 import MiPago from "@/components/MiPago";
 import FallaOperadorForm from "@/components/FallaOperadorForm";
+import HorometroOperadorForm from "@/components/HorometroOperadorForm";
+import { aLectura, type LecturaHoro } from "@/lib/horometro";
 import type { ReporteFalla } from "@/lib/fallas";
 import type { FuelLog } from "@/lib/combustible";
 import { fmtNum } from "@/lib/machines";
@@ -22,7 +24,10 @@ export default function OperadorPage() {
   const [fallas, setFallas] = useState<ReporteFalla[]>([]);
   // undefined = cerrado, null = reporte nuevo, ReporteFalla = abierto
   const [falla, setFalla] = useState<ReporteFalla | null | undefined>(undefined);
-  const [vista, setVista] = useState<"horas" | "combustible" | "fallas">("horas");
+  const [lecturas, setLecturas] = useState<LecturaHoro[]>([]);
+  // undefined = cerrado, null = lectura nueva, LecturaHoro = abierta
+  const [lectura, setLectura] = useState<LecturaHoro | null | undefined>(undefined);
+  const [vista, setVista] = useState<"horas" | "combustible" | "horometro" | "fallas">("horas");
   // undefined = cerrado, null = carga nueva, FuelLog = abierta
   const [gasoil, setGasoil] = useState<FuelLog | null | undefined>(undefined);
   const [cargando, setCargando] = useState(true);
@@ -35,7 +40,7 @@ export default function OperadorPage() {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     setUid(u.user.id);
-    const [p, m, c, f, r] = await Promise.all([
+    const [p, m, c, f, r, h] = await Promise.all([
       supabase.from("perfiles").select("nombre, rol").eq("user_id", u.user.id).maybeSingle(),
       supabase.from("operador_maquinas").select("machine_id, maquina_nombre").eq("user_id", u.user.id),
       supabase
@@ -55,8 +60,14 @@ export default function OperadorPage() {
         .select("*")
         .eq("creado_por", u.user.id)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("lecturas_horometro")
+        .select("*")
+        .eq("creado_por", u.user.id)
+        .order("fecha", { ascending: false })
+        .order("created_at", { ascending: false }),
     ]);
-    const fallo = p.error ?? m.error ?? c.error ?? f.error ?? r.error;
+    const fallo = p.error ?? m.error ?? c.error ?? f.error ?? r.error ?? h.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -66,6 +77,7 @@ export default function OperadorPage() {
       setConduces(((c.data ?? []) as Conduce[]).map((x) => ({ ...x, horas_cobrables: Number(x.horas_cobrables) })));
       setCargas(((f.data ?? []) as FuelLog[]).map((x) => ({ ...x, galones: Number(x.galones) })));
       setFallas((r.data ?? []) as ReporteFalla[]);
+      setLecturas((h.data ?? []).map(aLectura));
     }
     setCargando(false);
   }, []);
@@ -116,6 +128,9 @@ export default function OperadorPage() {
             <button className={vista === "combustible" ? "tab on" : "tab"} onClick={() => setVista("combustible")}>
               Combustible
             </button>
+            <button className={vista === "horometro" ? "tab on" : "tab"} onClick={() => setVista("horometro")}>
+              Horómetro
+            </button>
             <button className={vista === "fallas" ? "tab on" : "tab"} onClick={() => setVista("fallas")}>
               Fallas
             </button>
@@ -124,10 +139,24 @@ export default function OperadorPage() {
           <button
             className="btn primary"
             style={{ width: "100%", minHeight: 56, fontSize: 18, marginBottom: 16 }}
-            onClick={() => (vista === "horas" ? setAbierto(null) : vista === "combustible" ? setGasoil(null) : setFalla(null))}
+            onClick={() =>
+              vista === "horas"
+                ? setAbierto(null)
+                : vista === "combustible"
+                  ? setGasoil(null)
+                  : vista === "horometro"
+                    ? setLectura(null)
+                    : setFalla(null)
+            }
             disabled={maquinas.length === 0}
           >
-            {vista === "horas" ? "+ Reportar el día" : vista === "combustible" ? "+ Cargar combustible" : "+ Reportar una falla"}
+            {vista === "horas"
+              ? "+ Reportar el día"
+              : vista === "combustible"
+                ? "+ Cargar combustible"
+                : vista === "horometro"
+                  ? "+ Registrar horómetro"
+                  : "+ Reportar una falla"}
           </button>
           {!cargando && maquinas.length === 0 && (
             <div className="aviso" style={{ marginBottom: 12 }}>
@@ -142,6 +171,34 @@ export default function OperadorPage() {
           {vista === "combustible" && !cargando && !error && cargas.length === 0 && maquinas.length > 0 && (
             <div className="empty">Aún no has cargado combustible.</div>
           )}
+
+          {vista === "horometro" && !cargando && !error && lecturas.length === 0 && maquinas.length > 0 && (
+            <div className="empty">Aún no has registrado el horómetro.</div>
+          )}
+
+          {vista === "horometro" &&
+            lecturas.map((x) => (
+              <button key={x.id} className="card" onClick={() => setLectura(x)}>
+                <div className="row">
+                  <div>
+                    <h2>Horómetro</h2>
+                    <span
+                      className={x.estado === "Aprobado" ? "pill disp" : x.estado === "Rechazado" ? "pill taller" : "pill obra"}
+                    >
+                      {x.estado === "Pendiente" ? "Esperando aprobación" : x.estado}
+                    </span>
+                  </div>
+                  <div className="horas">
+                    {fmtNum(x.lectura, 1)}
+                    <small> h</small>
+                  </div>
+                </div>
+                <div className="line">{[fmtFecha(x.fecha), x.nota].filter(Boolean).join(" · ")}</div>
+                {x.estado === "Rechazado" && (
+                  <div className="alerta">Rechazada{x.motivo_rechazo ? `: ${x.motivo_rechazo}` : ""}. Toca para corregir.</div>
+                )}
+              </button>
+            ))}
 
           {vista === "fallas" && !cargando && !error && fallas.length === 0 && maquinas.length > 0 && (
             <div className="empty">No has reportado ninguna falla.</div>
@@ -237,6 +294,19 @@ export default function OperadorPage() {
           onClose={() => setGasoil(undefined)}
           onSaved={() => {
             setGasoil(undefined);
+            cargar();
+          }}
+        />
+      )}
+
+      {lectura !== undefined && (
+        <HorometroOperadorForm
+          lectura={lectura}
+          uid={uid}
+          maquinas={maquinas}
+          onClose={() => setLectura(undefined)}
+          onSaved={() => {
+            setLectura(undefined);
             cargar();
           }}
         />
