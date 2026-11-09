@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { aNumero, fmtMonto, fmtNum, hoyRD } from "@/lib/machines";
+import { CampoVoucher, VoucherDePago, subirVoucher } from "@/components/VoucherPago";
 import {
   calcularDias,
   etiquetaTipo,
@@ -209,6 +210,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
   const [montos, setMontos] = useState<Record<string, string>>({});
   const [fechaPago, setFechaPago] = useState(hoy);
   const [nota, setNota] = useState("");
+  const [voucher, setVoucher] = useState<File | null>(null);
   const [editDia, setEditDia] = useState<DiaPago | null>(null);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -261,6 +263,15 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
 
     setGuardando(true);
     const supabase = createClient();
+    let voucherPath: string | null = null;
+    if (voucher) {
+      try {
+        voucherPath = await subirVoucher(voucher, perfil.user_id, `quincena-${q.fin}`);
+      } catch (ex) {
+        setGuardando(false);
+        return setError(ex instanceof Error ? ex.message : "No se pudo subir el voucher.");
+      }
+    }
     const { data: nuevo, error: e1 } = await supabase
       .from("pagos_operador")
       .insert({
@@ -274,11 +285,13 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         bruto: tot.bruto,
         descuento_deudas: totalDescuento,
         nota: nota.trim() || null,
+        voucher_path: voucherPath,
         creado_por: await idAdmin(),
       })
       .select("id")
       .single();
     if (e1 || !nuevo) {
+      if (voucherPath) await supabase.storage.from("conduces").remove([voucherPath]);
       setGuardando(false);
       if (e1?.code === "23505") return setError("Esta quincena ya tiene un pago registrado.");
       return setError(`No se pudo registrar el pago: ${e1?.message ?? "error desconocido"}`);
@@ -291,12 +304,14 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
       const { error: e2 } = await supabase.from("descuentos_deuda").insert(filas);
       if (e2) {
         await supabase.from("pagos_operador").delete().eq("id", nuevo.id);
+        if (voucherPath) await supabase.storage.from("conduces").remove([voucherPath]);
         setGuardando(false);
         return setError(`No se pudieron descontar las deudas, el pago no se registró: ${e2.message}`);
       }
     }
     setGuardando(false);
     setNota("");
+    setVoucher(null);
     onChanged();
   }
 
@@ -404,6 +419,13 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
             Se le pagó: <b>{dinero(pago.neto)}</b>
           </div>
           {pago.nota && <div>{pago.nota}</div>}
+          <VoucherDePago
+            pagoId={pago.id}
+            operadorId={perfil.user_id}
+            voucherPath={pago.voucher_path}
+            etiqueta={`quincena-${pago.periodo_fin}`}
+            onChanged={onChanged}
+          />
           <div className="actions">
             <BotonConfirmar texto="Anular este pago" confirmar="Toca otra vez para anular" onClick={anular} disabled={guardando} />
           </div>
@@ -445,6 +467,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
               <input id="qp-nota" value={nota} onChange={(e) => setNota(e.target.value)} />
             </div>
           </div>
+          <CampoVoucher id="qp-voucher" archivo={voucher} onChange={setVoucher} />
           <div className="actions">
             <button
               className="btn primary grow"
@@ -486,6 +509,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
     return !perfil.paga_desde || s.fin >= perfil.paga_desde;
   });
   const [valores, setValores] = useState<Record<string, { dieta: string; comb: string }>>({});
+  const [vouchers, setVouchers] = useState<Record<string, File | null>>({});
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
@@ -518,23 +542,35 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
     if (dieta == null || dieta < 0 || comb == null || comb < 0) return setError("Escribe la dieta y el combustible (puede ser 0).");
     const s = semanaPagadaEl(l);
     setGuardando(true);
-    const { error: err } = await createClient()
-      .from("pagos_operador")
-      .insert({
-        user_id: perfil.user_id,
-        tipo: "semanal",
-        periodo_inicio: s.inicio,
-        periodo_fin: s.fin,
-        fecha_pago: l,
-        dieta,
-        combustible: comb,
-        creado_por: await idAdmin(),
-      });
+    const supabase = createClient();
+    let voucherPath: string | null = null;
+    const archivo = vouchers[l];
+    if (archivo) {
+      try {
+        voucherPath = await subirVoucher(archivo, perfil.user_id, `semana-${s.fin}`);
+      } catch (ex) {
+        setGuardando(false);
+        return setError(ex instanceof Error ? ex.message : "No se pudo subir el voucher.");
+      }
+    }
+    const { error: err } = await supabase.from("pagos_operador").insert({
+      user_id: perfil.user_id,
+      tipo: "semanal",
+      periodo_inicio: s.inicio,
+      periodo_fin: s.fin,
+      fecha_pago: l,
+      dieta,
+      combustible: comb,
+      voucher_path: voucherPath,
+      creado_por: await idAdmin(),
+    });
     setGuardando(false);
     if (err) {
+      if (voucherPath) await supabase.storage.from("conduces").remove([voucherPath]);
       if (err.code === "23505") return setError("Esa semana ya tiene su pago registrado.");
       return setError(`No se pudo registrar: ${err.message}`);
     }
+    setVouchers((x) => ({ ...x, [l]: null }));
     onChanged();
   }
 
@@ -580,6 +616,13 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
                 <div className="line">
                   Dieta {dinero(p.dieta)} + combustible {dinero(p.combustible)} = <b>{dinero(p.dieta + p.combustible)}</b>
                 </div>
+                <VoucherDePago
+                  pagoId={p.id}
+                  operadorId={perfil.user_id}
+                  voucherPath={p.voucher_path}
+                  etiqueta={`semana-${p.periodo_fin}`}
+                  onChanged={onChanged}
+                />
                 <div className="actions">
                   <BotonConfirmar texto="Anular" confirmar="Toca otra vez para anular" onClick={() => anular(p.id)} disabled={guardando} />
                 </div>
@@ -606,6 +649,11 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
                     />
                   </div>
                 </div>
+                <CampoVoucher
+                  id={`sv-${l}`}
+                  archivo={vouchers[l] ?? null}
+                  onChange={(f) => setVouchers((x) => ({ ...x, [l]: f }))}
+                />
                 <div className="actions">
                   <button
                     className="btn small primary"
@@ -827,6 +875,13 @@ function VistaHistorial({ d, onChanged }: { d: DatosOperador; onChanged: () => v
               ? `${fmtNum(p.horas, 2)} h · ganado ${dinero(p.bruto)}${p.descuento_deudas > 0 ? ` · deudas −${dinero(p.descuento_deudas)}` : ""}`
               : `Dieta ${dinero(p.dieta)} + combustible ${dinero(p.combustible)}`}
           </div>
+          <VoucherDePago
+            pagoId={p.id}
+            operadorId={p.user_id}
+            voucherPath={p.voucher_path}
+            etiqueta={`${p.tipo === "quincena" ? "quincena" : "semana"}-${p.periodo_fin}`}
+            onChanged={onChanged}
+          />
           <div className="actions">
             <BotonConfirmar texto="Anular" confirmar="Toca otra vez para anular" onClick={() => anular(p.id)} disabled={guardando} />
           </div>

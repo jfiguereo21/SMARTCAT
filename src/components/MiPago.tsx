@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fmtMonto, fmtNum, hoyRD } from "@/lib/machines";
 import type { Conduce } from "@/lib/conduces";
+import { VerVoucher } from "@/components/VoucherPago";
 import {
   aAjusteRow,
   aDeudaRow,
@@ -164,14 +165,22 @@ export default function MiPago({ uid, conduces }: { uid: string; conduces: Condu
         <div className="resumen">
           <b>Pagos que te han hecho</b>
           {recientes.map((p) => (
-            <div key={p.id} className="row" style={{ marginTop: 4 }}>
-              <span>
-                {p.tipo === "quincena" ? "Quincena" : "Dieta y combustible"} · {fmtCorta(p.periodo_inicio)} al{" "}
-                {fmtCorta(p.periodo_fin)}
-                <br />
-                <span className="pill disp">Pagado el {fmtCorta(p.fecha_pago)}</span>
-              </span>
-              <b>{dinero(p.neto)}</b>
+            <div key={p.id} style={{ marginTop: 8 }}>
+              <div className="row">
+                <span>
+                  {p.tipo === "quincena" ? "Quincena" : "Dieta y combustible"} · {fmtCorta(p.periodo_inicio)} al{" "}
+                  {fmtCorta(p.periodo_fin)}
+                  <br />
+                  <span className="pill disp">Pagado el {fmtCorta(p.fecha_pago)}</span>
+                </span>
+                <b>{dinero(p.neto)}</b>
+              </div>
+              {p.voucher_path && (
+                <div style={{ marginTop: 6 }}>
+                  <div className="hint">Voucher del pago</div>
+                  <VerVoucher path={p.voucher_path} />
+                </div>
+              )}
             </div>
           ))}
         </div>

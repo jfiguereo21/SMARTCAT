@@ -257,6 +257,7 @@ export type PagoRow = {
   descuento_deudas: number;
   neto: number;
   nota: string | null;
+  voucher_path: string | null; // foto del voucher que sube el administrador
 };
 
 export type DescuentoRow = {
@@ -296,6 +297,7 @@ export const aPagoRow = (x: Record<string, unknown>): PagoRow => ({
   descuento_deudas: Number(x.descuento_deudas),
   neto: Number(x.neto),
   nota: (x.nota as string | null) ?? null,
+  voucher_path: (x.voucher_path as string | null) ?? null,
 });
 
 export const aDeudaRow = (x: Record<string, unknown>): DeudaRow => ({
