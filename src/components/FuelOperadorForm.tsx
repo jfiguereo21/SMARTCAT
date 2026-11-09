@@ -102,9 +102,7 @@ export default function FuelOperadorForm({ carga, uid, maquinas, onClose, onSave
         {aprobada ? (
           <>
             <div className="resumen">
-              <div>
-                {nombreMaquina || "Máquina"} · {fmtFecha(carga.fecha)}
-              </div>
+              <div>{fmtFecha(carga.fecha)}</div>
               <div>
                 Aprobada: <b>{fmtNum(carga.galones, 2)} galones</b>
               </div>

@@ -1,6 +1,9 @@
 export type Libreta = "FIPEC" | "BRAU";
 export type EstadoConduce = "Pendiente" | "Aprobado" | "Rechazado";
 
+export type Implemento = "Cubo" | "Martillo" | "Otro";
+export const IMPLEMENTOS: Implemento[] = ["Cubo", "Martillo", "Otro"];
+
 export type Tramo = { entrada: string; salida: string };
 
 export type Conduce = {
@@ -13,6 +16,7 @@ export type Conduce = {
   obra: string | null;
   zona: string | null;
   trabajo: string | null;
+  implemento: Implemento | null;
   tramos: Tramo[];
   horas_calculadas: number;
   horas_escritas: number | null;

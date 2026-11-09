@@ -70,7 +70,6 @@ export default function OperadorPage() {
   const hoy = hoyRD();
   const r = useMemo(() => resumenHoras(conduces, hoy), [conduces, hoy]);
   const etiquetaCorte = corteDe(hoy).etiqueta;
-  const nombreMaq = (id: string) => maquinas.find((m) => m.machine_id === id)?.maquina_nombre ?? "Máquina";
 
   return (
     <main className="wrap">
@@ -162,7 +161,7 @@ export default function OperadorPage() {
               <button key={x.id} className="card" onClick={() => setGasoil(x)}>
                 <div className="row">
                   <div>
-                    <h2>{nombreMaq(x.machine_id)}</h2>
+                    <h2>Combustible</h2>
                     <span
                       className={x.estado === "Aprobado" ? "pill disp" : x.estado === "Rechazado" ? "pill taller" : "pill obra"}
                     >
@@ -188,7 +187,7 @@ export default function OperadorPage() {
                 <div className="row">
                   <div>
                     <h2>
-                      {c.libreta} #{c.numero} · {nombreMaq(c.machine_id)}
+                      {c.libreta} #{c.numero}{c.implemento ? ` · ${c.implemento}` : ""}
                     </h2>
                     <span
                       className={c.estado === "Aprobado" ? "pill disp" : c.estado === "Rechazado" ? "pill taller" : "pill obra"}

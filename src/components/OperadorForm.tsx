@@ -8,7 +8,9 @@ import {
   fmtFecha,
   horasTramo,
   sumaTramos,
+  IMPLEMENTOS,
   type Conduce,
+  type Implemento,
   type Libreta,
   type Tramo,
 } from "@/lib/conduces";
@@ -28,8 +30,9 @@ const TRAMO_VACIO: Tramo = { entrada: "", salida: "" };
 
 export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved }: Props) {
   const nuevo = conduce === null;
-  // Ya aprobado: el operador no puede cambiar nada, solo subir el conduce firmado.
-  const soloFirma = conduce?.estado === "Aprobado";
+  // Ya enviado (aprobado o esperando aprobación): el operador no puede cambiar nada, solo subir el conduce firmado.
+  // Si se equivocó, el administrador tiene que devolvérselo.
+  const soloFirma = conduce?.estado === "Aprobado" || conduce?.estado === "Pendiente";
 
   const [machineId, setMachineId] = useState(conduce?.machine_id ?? (maquinas.length === 1 ? maquinas[0].machine_id : ""));
   const [fecha, setFecha] = useState(conduce?.fecha ?? hoyRD());
@@ -40,6 +43,7 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
   );
   const [escritas, setEscritas] = useState(conduce?.horas_escritas != null ? String(conduce.horas_escritas) : "");
   const [obra, setObra] = useState(conduce?.obra ?? "");
+  const [implemento, setImplemento] = useState<Implemento | "">(conduce?.implemento ?? "");
   const [trabajo, setTrabajo] = useState(conduce?.trabajo ?? "");
   const [notas, setNotas] = useState(conduce?.notas ?? "");
   const [fotoSinFirma, setFotoSinFirma] = useState<File | null>(null);
@@ -71,6 +75,7 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
       if (!fecha) return setError("Falta la fecha.");
       if (fecha > hoyRD()) return setError("La fecha no puede ser de un día que todavía no llega.");
       if (!machineId) return setError("Escoge la máquina.");
+      if (implemento === "") return setError("Escoge con qué trabajaste: cubo, martillo u otro.");
       for (let i = 0; i < tramos.length; i++) {
         const t = tramos[i];
         if (t.entrada === "" && t.salida === "") continue;
@@ -103,7 +108,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
           fecha,
           machine_id: machineId,
           obra: obra.trim() || null,
-          trabajo: trabajo.trim() || null,
+          implemento: implemento === "" ? null : implemento,
+          trabajo: implemento === "Otro" ? trabajo.trim() || null : null,
           tramos: tramosUsados,
           horas_calculadas: sumaTramos(tramosUsados), // la base de datos lo vuelve a calcular
           horas_escritas: escritasNum,
@@ -142,8 +148,6 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
     onSaved();
   }
 
-  const nombreMaquina = maquinas.find((m) => m.machine_id === machineId)?.maquina_nombre ?? "";
-
   return (
     <div className="sheet-bg" onClick={onClose}>
       <form className="sheet" onClick={(e) => e.stopPropagation()} onSubmit={guardar}>
@@ -160,12 +164,17 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
         {soloFirma ? (
           <>
             <div className="resumen">
+              <div>{fmtFecha(conduce.fecha)}</div>
               <div>
-                {nombreMaquina || "Máquina"} · {fmtFecha(conduce.fecha)}
+                {conduce.estado === "Aprobado" ? "Horas aprobadas" : "Horas enviadas"}:{" "}
+                <b>{fmtNum(Number(conduce.horas_cobrables), 2)} h</b>
               </div>
-              <div>
-                Horas aprobadas: <b>{fmtNum(Number(conduce.horas_cobrables), 2)} h</b>
-              </div>
+              {conduce.estado === "Pendiente" && (
+                <div className="aviso">
+                  Está esperando la aprobación del administrador y ya no se puede cambiar. Si te equivocaste en algo,
+                  avísale para que te lo devuelva.
+                </div>
+              )}
               {!conduce.firmado && !conduce.foto_firmada_path && (
                 <div className="aviso">Falta el conduce firmado. Cuando lo tengas firmado, tómale una foto y súbela.</div>
               )}
@@ -254,7 +263,6 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
 
             <div className="resumen">
               Llevas <b>{fmtNum(calculadas, 2)} h</b> en este conduce
-              {nombreMaquina ? ` · ${nombreMaquina}` : ""}
             </div>
 
             <div className="field">
@@ -268,9 +276,22 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
               <input id="o-obra" value={obra} onChange={(e) => setObra(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="o-trabajo">Trabajo que hiciste</label>
-              <input id="o-trabajo" value={trabajo} onChange={(e) => setTrabajo(e.target.value)} />
+              <label htmlFor="o-impl">¿Con qué trabajaste?</label>
+              <select id="o-impl" value={implemento} onChange={(e) => setImplemento(e.target.value as Implemento | "")}>
+                <option value="">Escoge uno</option>
+                {IMPLEMENTOS.map((i) => (
+                  <option key={i} value={i}>
+                    {i}
+                  </option>
+                ))}
+              </select>
             </div>
+            {implemento === "Otro" && (
+              <div className="field">
+                <label htmlFor="o-trabajo">¿Qué trabajo hiciste?</label>
+                <input id="o-trabajo" value={trabajo} onChange={(e) => setTrabajo(e.target.value)} />
+              </div>
+            )}
 
             <div className="field">
               <label htmlFor="o-foto">Foto del conduce (aunque todavía no esté firmado)</label>
@@ -306,7 +327,7 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
           <button type="button" className="btn" onClick={onClose} disabled={guardando}>
             Cancelar
           </button>
-          {!nuevo && !soloFirma && (
+          {!nuevo && conduce?.estado === "Rechazado" && (
             <button
               type="button"
               className={`btn danger${borrarListo ? " armed" : ""}`}

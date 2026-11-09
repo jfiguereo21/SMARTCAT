@@ -7,11 +7,13 @@ import {
   aHoras,
   horasCobrables,
   horasTramo,
+  IMPLEMENTOS,
   noCuadra,
   sumaTramos,
   type Cliente,
   type Conduce,
   type EstadoConduce,
+  type Implemento,
   type Libreta,
   type Tramo,
 } from "@/lib/conduces";
@@ -36,6 +38,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
   const [clientId, setClientId] = useState(conduce?.client_id ?? "");
   const [obra, setObra] = useState(conduce?.obra ?? "");
   const [zona, setZona] = useState(conduce?.zona ?? "");
+  const [implemento, setImplemento] = useState<Implemento | "">(conduce?.implemento ?? "");
   const [trabajo, setTrabajo] = useState(conduce?.trabajo ?? "");
   const [tramos, setTramos] = useState<Tramo[]>(
     conduce && conduce.tramos.length > 0 ? conduce.tramos : [{ ...TRAMO_VACIO }, { ...TRAMO_VACIO }]
@@ -140,6 +143,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
       client_id: clientId || null,
       obra: obra.trim() || null,
       zona: zona.trim() || null,
+      implemento: implemento === "" ? null : implemento,
       trabajo: trabajo.trim() || null,
       tramos: tramosUsados,
       horas_calculadas: sumaTramos(tramosUsados),
@@ -260,6 +264,18 @@ export default function ConduceEditor({ conduce, maquinas, clientes, onClose, on
         </div>
         <div className="hint" style={{ marginTop: -6, marginBottom: 12 }}>
           La zona es como aparece en la factura, por ejemplo Fase 1 o Townhouse 3.
+        </div>
+
+        <div className="field">
+          <label htmlFor="c-impl">Implemento</label>
+          <select id="c-impl" value={implemento} onChange={(e) => setImplemento(e.target.value as Implemento | "")}>
+            <option value="">Sin indicar</option>
+            {IMPLEMENTOS.map((i) => (
+              <option key={i} value={i}>
+                {i}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="field">
