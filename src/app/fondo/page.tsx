@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
-import FondoEditor, { type Socio } from "@/components/FondoEditor";
+import FondoEditor, { type Modo, type Socio } from "@/components/FondoEditor";
 import { aNumero, fmtMonto, hoyRD, type Machine } from "@/lib/machines";
 import { fmtFecha } from "@/lib/conduces";
 import {
@@ -38,6 +38,11 @@ export default function FondoPage() {
   const [filtro, setFiltro] = useState<Filtro>("todos");
   // undefined = editor cerrado, null = movimiento nuevo
   const [editando, setEditando] = useState<FondoMov | null | undefined>(undefined);
+  const [modo, setModo] = useState<Modo | undefined>(undefined);
+  const abrirNuevo = (m?: Modo) => {
+    setModo(m);
+    setEditando(null);
+  };
 
   // Inicio del fondo
   const [saldoIni, setSaldoIni] = useState("");
@@ -164,8 +169,21 @@ export default function FondoPage() {
       <Nav activa="fondo" />
       <div className="top">
         <h1>Fondo</h1>
-        <button className="btn primary" onClick={() => setEditando(null)}>
-          + Movimiento
+        <button className="btn" onClick={() => abrirNuevo()}>
+          Otro movimiento
+        </button>
+      </div>
+
+      <div className="grid2" style={{ marginBottom: 16 }}>
+        <button className="btn primary" style={{ minHeight: 76, fontSize: 17 }} onClick={() => abrirNuevo("aporte")}>
+          Puse dinero
+          <br />
+          <small style={{ fontWeight: 400 }}>en el fondo</small>
+        </button>
+        <button className="btn primary" style={{ minHeight: 76, fontSize: 17 }} onClick={() => abrirNuevo("bolsillo")}>
+          Pagué un gasto
+          <br />
+          <small style={{ fontWeight: 400 }}>de mi bolsillo</small>
         </button>
       </div>
 
@@ -247,7 +265,7 @@ export default function FondoPage() {
         <>
           <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Esperan tu acción ({esperan.length})</h2>
           {esperan.map((m) => (
-            <Tarjeta key={m.id} m={m} nombreDe={nombreDe} onClick={() => setEditando(m)} />
+            <Tarjeta key={m.id} m={m} nombreDe={nombreDe} onClick={() => { setModo(undefined); setEditando(m); }} />
           ))}
         </>
       )}
@@ -279,11 +297,11 @@ export default function FondoPage() {
           {cargando ? (
             <div className="empty">Cargando...</div>
           ) : filas.length === 0 ? (
-            <div className="empty">No hay movimientos todavía. Toca “+ Movimiento” para anotar el primero.</div>
+            <div className="empty">No hay movimientos todavía. Usa uno de los botones de arriba para anotar el primero.</div>
           ) : (
             filas.map((f) =>
               f.mov ? (
-                <Tarjeta key={f.clave} m={f.mov} nombreDe={nombreDe} onClick={() => setEditando(f.mov!)} />
+                <Tarjeta key={f.clave} m={f.mov} nombreDe={nombreDe} onClick={() => { setModo(undefined); setEditando(f.mov!); }} />
               ) : (
                 <div key={f.clave} className="card" style={{ cursor: "default" }}>
                   <div className="row">
@@ -392,6 +410,7 @@ export default function FondoPage() {
           maquinas={maquinas}
           socios={socios}
           uid={uid}
+          modo={modo}
           onClose={() => setEditando(undefined)}
           onSaved={() => {
             setEditando(undefined);

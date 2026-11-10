@@ -6,6 +6,7 @@ import { aNumero, fmtMonto, hoyRD, type Machine } from "@/lib/machines";
 import { fmtFecha } from "@/lib/conduces";
 import { subirFoto, useFotoUrl } from "@/lib/fotos";
 import {
+  CAT_APORTE,
   CATEGORIAS_CON_SOCIO,
   CATEGORIAS_ENTRADA,
   CATEGORIAS_SALIDA,
@@ -16,31 +17,35 @@ import {
 } from "@/lib/fondo";
 
 export type Socio = { user_id: string; nombre: string };
+// Atajos para lo que más se hace: "aporte" = pongo dinero en el fondo; "bolsillo" = pagué un gasto con mi dinero.
+export type Modo = "aporte" | "bolsillo";
 
 type Props = {
   mov: FondoMov | null; // null = movimiento nuevo
   maquinas: Machine[];
   socios: Socio[];
   uid: string;
+  modo?: Modo;
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSaved }: Props) {
+export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose, onSaved }: Props) {
   const nuevo = mov === null;
   const nombreDe = (id: string | null) => socios.find((s) => s.user_id === id)?.nombre || "otro socio";
   const urlComp = useFotoUrl(mov?.comprobante_path);
 
-  const [tipo, setTipo] = useState<TipoMov>(mov?.tipo ?? "Salida");
+  const atajo = mov === null ? modo : undefined;
+  const [tipo, setTipo] = useState<TipoMov>(mov?.tipo ?? (atajo === "aporte" ? "Entrada" : "Salida"));
   const [fecha, setFecha] = useState(mov?.fecha ?? hoyRD());
   const [monto, setMonto] = useState(mov ? String(mov.monto) : "");
-  const [categoria, setCategoria] = useState(mov?.categoria ?? "");
+  const [categoria, setCategoria] = useState(mov?.categoria ?? (atajo === "aporte" ? CAT_APORTE : ""));
   const [machineId, setMachineId] = useState(mov?.machine_id ?? "");
-  const [origen, setOrigen] = useState<OrigenMov>(mov?.origen ?? "Fondo");
-  const [socioId, setSocioId] = useState(mov?.socio_id ?? "");
+  const [origen, setOrigen] = useState<OrigenMov>(mov?.origen ?? (atajo === "bolsillo" ? "Bolsillo" : "Fondo"));
+  const [socioId, setSocioId] = useState(mov?.socio_id ?? (atajo ? uid : ""));
   const [descripcion, setDescripcion] = useState(mov?.descripcion ?? "");
   const [archivo, setArchivo] = useState<File | null>(null);
-  const [yaPagado, setYaPagado] = useState(false);
+  const [yaPagado, setYaPagado] = useState(atajo === "aporte");
   const [motivo, setMotivo] = useState("");
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -87,6 +92,8 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
     if (v) return setError(v);
     // Lo que un socio paga de su bolsillo ya se pagó: hace falta el comprobante.
     const pagadoAlCrear = nuevo && (yaPagado || origen === "Bolsillo");
+    if (atajo === "aporte" && !archivo) return setError("Sube la foto del depósito para que el otro socio pueda confirmarlo.");
+    if (atajo === "bolsillo" && !descripcion.trim()) return setError("Escribe qué fue lo que pagaste.");
     if (nuevo && tipo === "Salida" && pagadoAlCrear && !archivo)
       return setError("Para registrar un gasto ya pagado sube la foto del comprobante.");
 
@@ -165,7 +172,25 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
   return (
     <div className="sheet-bg" onClick={onClose}>
       <form className="sheet" onClick={(e) => e.stopPropagation()} onSubmit={guardar}>
-        <h2>{nuevo ? "Movimiento del fondo" : `${mov.tipo} · ${estado}`}</h2>
+        <h2>
+          {atajo === "aporte"
+            ? "Puse dinero en el fondo"
+            : atajo === "bolsillo"
+              ? "Pagué un gasto de mi bolsillo"
+              : nuevo
+                ? "Movimiento del fondo"
+                : `${mov.tipo} · ${estado}`}
+        </h2>
+        {atajo === "aporte" && (
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Anota cuánto depositaste y sube la foto del depósito. El otro socio lo confirma y queda a tu favor.
+          </div>
+        )}
+        {atajo === "bolsillo" && (
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Anota lo que pagaste con tu dinero. No baja el fondo: queda anotado a tu favor para que te lo devuelvan.
+          </div>
+        )}
         {error && <div className="error">{error}</div>}
 
         {mov && (
@@ -198,7 +223,8 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
           </a>
         )}
 
-        <div className="grid2">
+        <div className="grid2" style={atajo ? { gridTemplateColumns: "1fr" } : undefined}>
+          {!atajo && (
           <div className="field">
             <label htmlFor="fm-tipo">Tipo</label>
             <select id="fm-tipo" value={tipo} onChange={(e) => cambiarTipo(e.target.value as TipoMov)}>
@@ -206,19 +232,21 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
               <option value="Entrada">Entra dinero</option>
             </select>
           </div>
+          )}
           <div className="field">
             <label htmlFor="fm-fecha">Fecha</label>
             <input id="fm-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
           </div>
         </div>
 
-        <div className="grid2">
+        <div className="grid2" style={atajo === "aporte" ? { gridTemplateColumns: "1fr" } : undefined}>
           <div className="field">
             <label htmlFor="fm-monto">Monto (RD$)</label>
             <input id="fm-monto" inputMode="decimal" value={monto} onChange={(e) => setMonto(e.target.value)} />
           </div>
+          {atajo !== "aporte" && (
           <div className="field">
-            <label htmlFor="fm-cat">Categoría</label>
+            <label htmlFor="fm-cat">{atajo === "bolsillo" ? "¿Qué tipo de gasto?" : "Categoría"}</label>
             <select id="fm-cat" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
               <option value="">Escoge</option>
               {categorias.map((c) => (
@@ -228,9 +256,10 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
               ))}
             </select>
           </div>
+          )}
         </div>
 
-        {tipo === "Salida" && (
+        {tipo === "Salida" && !atajo && (
           <div className="field">
             <label htmlFor="fm-origen">¿De dónde sale el dinero?</label>
             <select id="fm-origen" value={origen} onChange={(e) => setOrigen(e.target.value as OrigenMov)}>
@@ -243,7 +272,7 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
           </div>
         )}
 
-        {pideSocio && (
+        {pideSocio && !atajo && (
           <div className="field">
             <label htmlFor="fm-socio">
               {origen === "Bolsillo"
@@ -276,7 +305,7 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
         </div>
 
         <div className="field">
-          <label htmlFor="fm-desc">Descripción</label>
+          <label htmlFor="fm-desc">{atajo === "bolsillo" ? "¿Qué pagaste?" : "Descripción"}</label>
           <input id="fm-desc" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
           <div className="hint">Por ejemplo: filtro de aceite, o a quién se le pagó.</div>
         </div>
@@ -289,13 +318,13 @@ export default function FondoEditor({ mov, maquinas, socios, uid, onClose, onSav
           {mov?.comprobante_path && !archivo && <div className="hint">Ya tiene un comprobante. Si subes otro, lo reemplaza.</div>}
         </div>
 
-        {nuevo && origen === "Fondo" && (
+        {nuevo && origen === "Fondo" && !atajo && (
           <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
             <input type="checkbox" checked={yaPagado} onChange={(e) => setYaPagado(e.target.checked)} />
             <span>Ya está {tipo === "Entrada" ? "depositado" : "pagado"}</span>
           </label>
         )}
-        {nuevo && !yaPagado && origen === "Fondo" && (
+        {nuevo && !yaPagado && origen === "Fondo" && !atajo && (
           <div className="hint" style={{ marginTop: -6, marginBottom: 12 }}>
             Si no, queda por aprobar: el otro socio lo aprueba y luego se paga con su comprobante.
           </div>
