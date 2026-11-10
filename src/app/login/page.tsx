@@ -33,6 +33,8 @@ export default function LoginPage() {
 
   return (
     <main className="login">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/icon-192.png" alt="SmartCat" width={88} height={88} style={{ borderRadius: 20, marginBottom: 14, display: "block" }} />
       <h1>SmartCat</h1>
       <p className="line" style={{ marginTop: 0, marginBottom: 20 }}>
         Control de maquinaria FIPEC

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1273d1"/><stop offset="1" stop-color="#0a4f95"/></linearGradient></defs>
+<rect width="1024" height="1024" fill="url(#bg)"/>
+<g transform="translate(512 512) scale(1.02) translate(-583.5 -567)"><!-- orugas -->
+<rect x="215" y="690" width="440" height="110" rx="55" fill="#fff"/>
+<circle cx="285" cy="745" r="26" fill="#0b5cad"/><circle cx="435" cy="745" r="26" fill="#0b5cad"/><circle cx="585" cy="745" r="26" fill="#0b5cad"/>
+<!-- cuerpo y cabina -->
+<rect x="250" y="590" width="340" height="90" rx="22" fill="#fff"/>
+<path d="M262 590 L262 470 Q262 440 292 440 L400 440 Q420 440 430 458 L470 590 Z" fill="#fff"/>
+<path d="M298 472 L394 472 L424 560 L298 560 Z" fill="#0b5cad" opacity=".9"/>
+<!-- brazo -->
+<path d="M500 600 L690 360 L850 520" fill="none" stroke="#fff" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M545 560 L650 430" stroke="#ffc928" stroke-width="20" stroke-linecap="round"/>
+<!-- balde -->
+<path d="M818 492 L912 470 Q940 570 868 640 L800 575 Z" fill="#ffc928"/>
+<path d="M868 640 L880 676 M902 604 L922 636 M926 548 L952 570" stroke="#ffc928" stroke-width="16" stroke-linecap="round"/>
+</g></svg>
