@@ -90,7 +90,7 @@ export default function OperadorPage() {
           </div>
         </div>
         <div className="who">
-          {rol === "admin" && (
+          {(rol === "admin" || rol === "socio") && (
             <Link href="/" className="btn small">
               Ir al panel
             </Link>
@@ -103,7 +103,7 @@ export default function OperadorPage() {
 
       {error && <div className="error">{error}</div>}
 
-      {!cargando && rol === "admin" ? (
+      {!cargando && (rol === "admin" || rol === "socio") ? (
         <div className="empty">Esta pantalla es para los operadores. Tú trabajas desde el panel.</div>
       ) : (
         <>

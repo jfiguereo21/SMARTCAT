@@ -3,18 +3,32 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { necesitaMiAccion, type FondoMov } from "@/lib/fondo";
 
-type Seccion = "maquinas" | "conduces" | "combustible" | "horometro" | "mantenimiento" | "acuerdos" | "operadores" | "pagos";
+type Seccion = "maquinas" | "conduces" | "combustible" | "horometro" | "mantenimiento" | "acuerdos" | "operadores" | "pagos" | "fondo";
 
 export default function Nav({ activa }: { activa: Seccion }) {
   const [correo, setCorreo] = useState("");
   const [porAprobar, setPorAprobar] = useState(0);
   const [gasoilPorAprobar, setGasoilPorAprobar] = useState(0);
   const [fallasNuevas, setFallasNuevas] = useState(0);
+  const [fondoEspera, setFondoEspera] = useState(0);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setCorreo(data.user?.email ?? ""));
+    supabase.auth.getUser().then(({ data }) => {
+      setCorreo(data.user?.email ?? "");
+      const uid = data.user?.id ?? "";
+      // Movimientos del fondo que esperan algo de mí: aprobar lo del otro socio o pagar lo aprobado.
+      supabase
+        .from("fondo_movimientos")
+        .select("*")
+        .is("rechazado_en", null)
+        .or("aprobado_en.is.null,pagado_en.is.null")
+        .then(({ data: movs }) =>
+          setFondoEspera(((movs ?? []) as FondoMov[]).filter((m) => necesitaMiAccion(m, uid)).length)
+        );
+    });
     // Cuántos conduces esperan tu aprobación.
     supabase
       .from("conduces")
@@ -58,6 +72,7 @@ export default function Nav({ activa }: { activa: Seccion }) {
         {tab("/acuerdos", "acuerdos", "Acuerdos")}
         {tab("/operadores", "operadores", "Operadores")}
         {tab("/pagos", "pagos", "Pagos")}
+        {tab("/fondo", "fondo", "Fondo", fondoEspera > 0 ? ` (${fondoEspera})` : "")}
       </nav>
       <div className="who">
         <span>{correo}</span>
