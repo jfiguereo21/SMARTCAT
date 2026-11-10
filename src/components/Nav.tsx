@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { necesitaMiAccion, type FondoMov } from "@/lib/fondo";
 
-type Seccion = "maquinas" | "conduces" | "combustible" | "horometro" | "mantenimiento" | "acuerdos" | "operadores" | "pagos" | "fondo";
+type Seccion = "maquinas" | "conduces" | "combustible" | "horometro" | "mantenimiento" | "acuerdos" | "operadores" | "pagos" | "fondo" | "corte";
 
 export default function Nav({ activa }: { activa: Seccion }) {
   const [correo, setCorreo] = useState("");
@@ -71,6 +71,7 @@ export default function Nav({ activa }: { activa: Seccion }) {
         {tab("/mantenimiento", "mantenimiento", "Mantenimiento", fallasNuevas > 0 ? ` (${fallasNuevas})` : "")}
         {tab("/acuerdos", "acuerdos", "Acuerdos")}
         {tab("/operadores", "operadores", "Operadores")}
+        {tab("/corte", "corte", "Corte")}
         {tab("/pagos", "pagos", "Pagos")}
         {tab("/fondo", "fondo", "Fondo", fondoEspera > 0 ? ` (${fondoEspera})` : "")}
       </nav>
