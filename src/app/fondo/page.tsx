@@ -6,9 +6,11 @@ import Nav from "@/components/Nav";
 import FondoEditor, { type Modo, type Socio } from "@/components/FondoEditor";
 import { aNumero, fmtMonto, hoyRD, type Machine } from "@/lib/machines";
 import { fmtFecha } from "@/lib/conduces";
+import { construirExcel, type FilaCierre } from "@/lib/cierreExcel";
 import {
   cuentaSocios,
   diferenciaCuadre,
+  estadoCierre,
   estadoMov,
   necesitaMiAccion,
   saldoFondo,
@@ -17,8 +19,19 @@ import {
   type FondoMov,
 } from "@/lib/fondo";
 
-type Vista = "movimientos" | "socios" | "cuadre";
-type Filtro = "todos" | EstadoMov;
+type Vista = "movimientos" | "socios" | "archivo" | "cuadre";
+type Filtro = "todos" | EstadoMov | "Archivados";
+type Cierre = {
+  id: string;
+  socio_id: string;
+  fecha: string;
+  total_gastos: number;
+  total_reembolsado: number;
+  cantidad: number;
+  excel_path: string | null;
+  nota: string | null;
+};
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 type PagoOpFila = { id: string; user_id: string; fecha_pago: string; neto: number };
 type Cuadre = { id: string; fecha: string; saldo_banco: number; saldo_app: number; nota: string | null };
 
@@ -32,6 +45,12 @@ export default function FondoPage() {
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
   const [perfiles, setPerfiles] = useState<(Socio & { rol: string })[]>([]);
   const [cuadres, setCuadres] = useState<Cuadre[]>([]);
+  const [cierres, setCierres] = useState<Cierre[]>([]);
+  const [verSocio, setVerSocio] = useState<string | null>(null);
+  const [verCierre, setVerCierre] = useState<string | null>(null);
+  const [notaCierre, setNotaCierre] = useState("");
+  const [cierreListo, setCierreListo] = useState<string | null>(null);
+  const [msgCierre, setMsgCierre] = useState("");
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [vista, setVista] = useState<Vista>("movimientos");
@@ -59,7 +78,7 @@ export default function FondoPage() {
     const supabase = createClient();
     const { data: u } = await supabase.auth.getUser();
     setUid(u.user?.id ?? "");
-    const [c, m, po, mq, pf, cu] = await Promise.all([
+    const [c, m, po, mq, pf, cu, ci] = await Promise.all([
       supabase.from("fondo_config").select("saldo_inicial, fecha_inicial").maybeSingle(),
       supabase
         .from("fondo_movimientos")
@@ -70,8 +89,9 @@ export default function FondoPage() {
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("perfiles").select("user_id, nombre, rol"),
       supabase.from("fondo_cuadres").select("*").order("created_at", { ascending: false }).limit(12),
+      supabase.from("fondo_cierres").select("*").order("created_at", { ascending: false }),
     ]);
-    const fallo = c.error ?? m.error ?? po.error ?? mq.error ?? pf.error ?? cu.error;
+    const fallo = c.error ?? m.error ?? po.error ?? mq.error ?? pf.error ?? cu.error ?? ci.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -84,6 +104,13 @@ export default function FondoPage() {
       setPagosOp(((po.data ?? []) as PagoOpFila[]).map((x) => ({ ...x, neto: Number(x.neto) })));
       setMaquinas((mq.data ?? []) as Machine[]);
       setPerfiles((pf.data ?? []) as (Socio & { rol: string })[]);
+      setCierres(
+        ((ci.data ?? []) as Cierre[]).map((x) => ({
+          ...x,
+          total_gastos: Number(x.total_gastos),
+          total_reembolsado: Number(x.total_reembolsado),
+        }))
+      );
       setCuadres(
         ((cu.data ?? []) as Cuadre[]).map((x) => ({
           ...x,
@@ -119,7 +146,9 @@ export default function FondoPage() {
   type Fila = { clave: string; fecha: string; mov?: FondoMov; pago?: PagoOpFila };
   const filas = useMemo(() => {
     const lista: Fila[] = movs
-      .filter((m) => filtro === "todos" || estadoMov(m) === filtro)
+      .filter((m) =>
+        filtro === "Archivados" ? m.cierre_id != null : m.cierre_id == null && (filtro === "todos" || estadoMov(m) === filtro)
+      )
       .map((m) => ({ clave: m.id, fecha: m.fecha, mov: m }));
     if (filtro === "todos" || filtro === "Pagado") {
       for (const p of pagosOp)
@@ -162,7 +191,75 @@ export default function FondoPage() {
     cargar();
   }
 
-  const FILTROS: Filtro[] = ["todos", "Por aprobar", "Por pagar", "Pagado", "Rechazado"];
+  const FILTROS: Filtro[] = ["todos", "Por aprobar", "Por pagar", "Pagado", "Rechazado", "Archivados"];
+
+  async function descargarExcel(ruta: string, nombre: string) {
+    setMsgCierre("");
+    const { data, error: err } = await createClient()
+      .storage.from("cierres")
+      .createSignedUrl(ruta, 600, { download: nombre });
+    if (err || !data) return setMsgCierre(`No se pudo abrir el Excel: ${err?.message ?? "sin enlace"}`);
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.download = nombre;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function cerrarCuenta(socioId: string) {
+    setMsgCierre("");
+    const est = estadoCierre(movs, socioId);
+    if (!est.puedeCerrar) return setMsgCierre(est.motivo);
+    setGuardando(true);
+    try {
+      const id = crypto.randomUUID();
+      const fechaCierre = hoyRD();
+      const fila = (m: FondoMov): FilaCierre => ({
+        fecha: m.fecha,
+        categoria: m.categoria,
+        maquina: m.machines?.nombre ?? "General",
+        descripcion: m.descripcion ?? "",
+        monto: m.monto,
+        registradoPor: nombreDe(m.creado_por),
+        aprobadoPor: nombreDe(m.aprobado_por),
+        pagadoEl: m.pagado_en ? m.pagado_en.slice(0, 10) : "",
+        comprobante: m.comprobante_path ?? "",
+      });
+      const buf = await construirExcel({
+        socio: nombreDe(socioId),
+        fechaCierre,
+        cerradoPor: nombreDe(uid),
+        nota: notaCierre.trim(),
+        gastos: est.gastos.map(fila),
+        devoluciones: est.devoluciones.map(fila),
+      });
+      const ruta = `${socioId}/cierre-${fechaCierre}-${id}.xlsx`;
+      const supabase = createClient();
+      // Primero se guarda el Excel; si algo falla después, no se archiva nada.
+      const { error: eUp } = await supabase.storage
+        .from("cierres")
+        .upload(ruta, new Blob([buf], { type: XLSX_MIME }), { contentType: XLSX_MIME });
+      if (eUp) throw new Error(`No se pudo guardar el Excel: ${eUp.message}`);
+      const { error: eRpc } = await supabase.rpc("cerrar_cuenta_socio", {
+        p_id: id,
+        p_socio: socioId,
+        p_ids: [...est.gastos, ...est.devoluciones].map((m) => m.id),
+        p_excel_path: ruta,
+        p_nota: notaCierre,
+      });
+      if (eRpc) throw new Error(eRpc.message);
+      setNotaCierre("");
+      setCierreListo(null);
+      setVerSocio(null);
+      setVista("archivo");
+      await cargar();
+      await descargarExcel(ruta, `Cierre ${nombreDe(socioId)} ${fechaCierre}.xlsx`);
+    } catch (err) {
+      setMsgCierre(`No se pudo cerrar: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    setGuardando(false);
+  }
 
   return (
     <main className="wrap">
@@ -277,6 +374,9 @@ export default function FondoPage() {
         <button className={vista === "socios" ? "tab on" : "tab"} onClick={() => setVista("socios")}>
           Cuenta con socios
         </button>
+        <button className={vista === "archivo" ? "tab on" : "tab"} onClick={() => setVista("archivo")}>
+          Archivo
+        </button>
         <button className={vista === "cuadre" ? "tab on" : "tab"} onClick={() => setVista("cuadre")}>
           Cuadre
         </button>
@@ -327,26 +427,166 @@ export default function FondoPage() {
             Aquí se ve lo que la sociedad le debe a cada socio (o lo que él le debe a la sociedad). Lo que paga cada
             socio de su bolsillo no baja el fondo; se anota aquí.
           </div>
-          {cuentas.map((c) => (
-            <div className="resumen" key={c.socio_id}>
-              <b>{nombreDe(c.socio_id)}</b>
-              <div className="line">Puso en el fondo: {rd(c.aportes)}</div>
-              <div className="line">Pagó de su bolsillo: {rd(c.adelantos)}</div>
-              <div className="line">Ya se le devolvió: {rd(c.reembolsos)}</div>
-              <div className="total-h" style={{ fontSize: 20, marginTop: 6 }}>
-                {c.saldo >= 0 ? "La sociedad le debe" : "Debe a la sociedad"} {rd(Math.abs(c.saldo))}
+          {msgCierre && <div className="error">{msgCierre}</div>}
+          {cuentas.map((c) => {
+            const est = estadoCierre(movs, c.socio_id);
+            const aportes = movs.filter(
+              (m) =>
+                m.socio_id === c.socio_id &&
+                m.cierre_id == null &&
+                !m.rechazado_en &&
+                m.tipo === "Entrada" &&
+                m.categoria === "Aporte de socio"
+            );
+            const abierto = verSocio === c.socio_id;
+            const abrirMov = (m: FondoMov) => {
+              setModo(undefined);
+              setEditando(m);
+            };
+            return (
+              <div className="resumen" key={c.socio_id}>
+                <b>{nombreDe(c.socio_id)}</b>
+                <div className="line">Puso en el fondo: {rd(c.aportes)}</div>
+                <div className="line">Pagó de su bolsillo: {rd(c.adelantos)}</div>
+                <div className="line">Ya se le devolvió: {rd(c.reembolsos)}</div>
+                <div className="total-h" style={{ fontSize: 20, marginTop: 6 }}>
+                  {c.saldo >= 0 ? "La sociedad le debe" : "Debe a la sociedad"} {rd(Math.abs(c.saldo))}
+                </div>
+                <div className="line">Repartos de ganancia recibidos: {rd(c.repartos)}</div>
+                {c.sinAprobar > 0 && (
+                  <div className="aviso">{c.sinAprobar} movimiento(s) de este socio sin aprobar por el otro.</div>
+                )}
+                <div className="actions">
+                  <button className="btn small" onClick={() => setVerSocio(abierto ? null : c.socio_id)}>
+                    {abierto ? "Ocultar el detalle" : `Ver cada gasto (${est.gastos.length + est.devoluciones.length + aportes.length})`}
+                  </button>
+                </div>
+                {abierto && (
+                  <div style={{ marginTop: 12 }}>
+                    <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Gastos que pagó de su bolsillo ({est.gastos.length})</h2>
+                    {est.gastos.length === 0 && <div className="hint">Ninguno pendiente de cerrar.</div>}
+                    {est.gastos.map((m) => (
+                      <Tarjeta key={m.id} m={m} nombreDe={nombreDe} onClick={() => abrirMov(m)} />
+                    ))}
+                    {est.gastos.length > 0 && (
+                      <div className="line" style={{ marginBottom: 12 }}>
+                        Suma de gastos: <b>{rd(est.totalGastos)}</b>
+                      </div>
+                    )}
+                    <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Lo que el fondo le ha devuelto ({est.devoluciones.length})</h2>
+                    {est.devoluciones.length === 0 && <div className="hint">Todavía nada.</div>}
+                    {est.devoluciones.map((m) => (
+                      <Tarjeta key={m.id} m={m} nombreDe={nombreDe} onClick={() => abrirMov(m)} />
+                    ))}
+                    {aportes.length > 0 && (
+                      <>
+                        <h2 style={{ fontSize: 16, margin: "12px 0 8px" }}>Dinero que puso en el fondo ({aportes.length})</h2>
+                        {aportes.map((m) => (
+                          <Tarjeta key={m.id} m={m} nombreDe={nombreDe} onClick={() => abrirMov(m)} />
+                        ))}
+                      </>
+                    )}
+                    <div className="resumen" style={{ marginTop: 12 }}>
+                      <b>Cerrar y archivar sus gastos</b>
+                      <div className="hint">
+                        Cuando todos sus gastos estén aprobados y devueltos por completo, se cierra la cuenta: se genera
+                        un Excel, se guarda en el Archivo y estos movimientos salen de la lista de trabajo. No se borra
+                        nada: queda guardado para siempre.
+                      </div>
+                      {est.puedeCerrar ? (
+                        <>
+                          <div className="field" style={{ marginTop: 8 }}>
+                            <label htmlFor={`ci-nota-${c.socio_id}`}>Nota (opcional)</label>
+                            <input
+                              id={`ci-nota-${c.socio_id}`}
+                              value={notaCierre}
+                              onChange={(e) => setNotaCierre(e.target.value)}
+                            />
+                          </div>
+                          <div className="actions">
+                            <button
+                              className={`btn primary grow${cierreListo === c.socio_id ? " armed" : ""}`}
+                              disabled={guardando}
+                              onClick={() => {
+                                if (cierreListo !== c.socio_id) {
+                                  setCierreListo(c.socio_id);
+                                  setTimeout(() => setCierreListo(null), 6000);
+                                } else cerrarCuenta(c.socio_id);
+                              }}
+                            >
+                              {guardando
+                                ? "Cerrando..."
+                                : cierreListo === c.socio_id
+                                  ? "Toca otra vez para cerrar"
+                                  : `Cerrar cuenta (${rd(est.totalGastos)})`}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="aviso">{est.motivo}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="line">Repartos de ganancia recibidos: {rd(c.repartos)}</div>
-              {c.sinAprobar > 0 && (
-                <div className="aviso">{c.sinAprobar} movimiento(s) de este socio sin aprobar por el otro.</div>
-              )}
-            </div>
-          ))}
+            );
+          })}
           {socios.length < 2 && (
             <div className="aviso">
               Todavía falta crear el usuario del socio (rol “socio”) para que vea y apruebe desde su celular.
             </div>
           )}
+        </>
+      )}
+
+      {vista === "archivo" && (
+        <>
+          <div className="hint" style={{ marginBottom: 10 }}>
+            Aquí quedan las cuentas ya cuadradas. Cada cierre tiene su Excel. Los movimientos siguen guardados, solo
+            que fuera de la lista de trabajo.
+          </div>
+          {msgCierre && <div className="error">{msgCierre}</div>}
+          {cierres.length === 0 && <div className="empty">Todavía no hay cuentas cerradas.</div>}
+          {cierres.map((ci) => {
+            const items = movs.filter((m) => m.cierre_id === ci.id);
+            const nombreArchivo = `Cierre ${nombreDe(ci.socio_id)} ${ci.fecha}.xlsx`;
+            return (
+              <div className="resumen" key={ci.id}>
+                <b>
+                  {nombreDe(ci.socio_id)} · {fmtFecha(ci.fecha)}
+                </b>
+                <div className="line">
+                  {ci.cantidad} movimientos · gastos {rd(ci.total_gastos)} · devuelto {rd(ci.total_reembolsado)}
+                </div>
+                {ci.nota && <div className="line">{ci.nota}</div>}
+                <div className="actions">
+                  {ci.excel_path && (
+                    <button className="btn small primary" onClick={() => descargarExcel(ci.excel_path!, nombreArchivo)}>
+                      Descargar Excel
+                    </button>
+                  )}
+                  <button className="btn small" onClick={() => setVerCierre(verCierre === ci.id ? null : ci.id)}>
+                    {verCierre === ci.id ? "Ocultar movimientos" : "Ver movimientos"}
+                  </button>
+                </div>
+                {verCierre === ci.id && (
+                  <div style={{ marginTop: 10 }}>
+                    {items.map((m) => (
+                      <Tarjeta
+                        key={m.id}
+                        m={m}
+                        nombreDe={nombreDe}
+                        onClick={() => {
+                          setModo(undefined);
+                          setEditando(m);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </>
       )}
 

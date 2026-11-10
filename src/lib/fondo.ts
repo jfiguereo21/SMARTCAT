@@ -29,6 +29,7 @@ export type FondoMov = {
   motivo_rechazo: string | null;
   pagado_por: string | null;
   pagado_en: string | null;
+  cierre_id: string | null;
   machines?: { nombre: string } | null;
 };
 
@@ -125,7 +126,8 @@ export type CuentaSocio = {
   sinAprobar: number; // cuántos movimientos suyos aún no aprobó el otro socio
 };
 
-export function cuentaSocios(movs: FondoMov[], socioIds: string[]): CuentaSocio[] {
+export function cuentaSocios(todos: FondoMov[], socioIds: string[]): CuentaSocio[] {
+  const movs = todos.filter((m) => m.cierre_id == null); // lo archivado ya está cuadrado
   const mapa = new Map<string, CuentaSocio>();
   for (const id of socioIds)
     mapa.set(id, { socio_id: id, aportes: 0, adelantos: 0, reembolsos: 0, repartos: 0, saldo: 0, sinAprobar: 0 });
@@ -153,4 +155,56 @@ export function cuentaSocios(movs: FondoMov[], socioIds: string[]): CuentaSocio[
 // Cuadre: lo que dice el banco contra lo que dice SmartCat.
 export function diferenciaCuadre(saldoBanco: number, saldoApp: number): number {
   return redondear2(saldoBanco - saldoApp);
+}
+
+// --- Cierre de cuenta de gastos de un socio ---
+// Los gastos que un socio pagó de su bolsillo y las devoluciones que le hizo el fondo se cierran juntos
+// cuando cuadran. Lo cerrado se archiva (sale de la pantalla de trabajo, queda en el Excel y en el Archivo).
+// Debe coincidir con la regla de la función cerrar_cuenta_socio de la base de datos.
+
+export const esGastoDeBolsillo = (m: FondoMov) => m.tipo === "Salida" && m.origen === "Bolsillo";
+export const esDevolucion = (m: FondoMov) =>
+  m.tipo === "Salida" && m.origen === "Fondo" && m.categoria === CAT_REEMBOLSO;
+
+export type EstadoCierre = {
+  gastos: FondoMov[];
+  devoluciones: FondoMov[];
+  totalGastos: number;
+  totalDevuelto: number;
+  falta: number; // lo que todavía hay que devolverle (negativo = se le devolvió de más)
+  sinAprobar: number;
+  puedeCerrar: boolean;
+  motivo: string; // por qué todavía no se puede cerrar ("" si se puede)
+};
+
+export function estadoCierre(movs: FondoMov[], socioId: string): EstadoCierre {
+  const abiertos = movs.filter(
+    (m) =>
+      m.socio_id === socioId &&
+      m.cierre_id == null &&
+      !m.rechazado_en &&
+      !!m.pagado_en &&
+      (esGastoDeBolsillo(m) || esDevolucion(m))
+  );
+  const gastos = abiertos.filter(esGastoDeBolsillo);
+  const devoluciones = abiertos.filter(esDevolucion);
+  const totalGastos = redondear2(gastos.reduce((t, m) => t + m.monto, 0));
+  const totalDevuelto = redondear2(devoluciones.reduce((t, m) => t + m.monto, 0));
+  const falta = redondear2(totalGastos - totalDevuelto);
+  const sinAprobar = abiertos.filter((m) => !m.aprobado_en).length;
+  let motivo = "";
+  if (gastos.length === 0) motivo = "No tiene gastos pagados por cerrar.";
+  else if (sinAprobar > 0) motivo = `Falta que el otro socio apruebe ${sinAprobar} movimiento(s).`;
+  else if (falta > 0) motivo = `Todavía falta devolverle ${falta.toFixed(2)}.`;
+  else if (falta < 0) motivo = `Se le devolvió ${(-falta).toFixed(2)} de más: no cuadra.`;
+  return {
+    gastos,
+    devoluciones,
+    totalGastos,
+    totalDevuelto,
+    falta,
+    sinAprobar,
+    puedeCerrar: motivo === "",
+    motivo,
+  };
 }

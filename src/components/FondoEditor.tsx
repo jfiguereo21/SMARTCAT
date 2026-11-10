@@ -164,10 +164,11 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
     onSaved();
   }
 
-  const puedeAprobar = mov != null && !mov.aprobado_en && !mov.rechazado_en && !soyCreador;
-  const puedeRechazar = puedeAprobar && !mov.pagado_en;
-  const puedePagar = mov != null && !mov.pagado_en && !mov.rechazado_en && (!!mov.aprobado_en || !soyCreador);
-  const puedeBorrar = mov != null && soyCreador && !mov.aprobado_en && !mov.pagado_en;
+  const archivado = mov?.cierre_id != null;
+  const puedeAprobar = !archivado && mov != null && !mov.aprobado_en && !mov.rechazado_en && !soyCreador;
+  const puedeRechazar = puedeAprobar && !mov!.pagado_en;
+  const puedePagar = !archivado && mov != null && !mov.pagado_en && !mov.rechazado_en && (!!mov.aprobado_en || !soyCreador);
+  const puedeBorrar = !archivado && mov != null && soyCreador && !mov.aprobado_en && !mov.pagado_en;
 
   return (
     <div className="sheet-bg" onClick={onClose}>
@@ -337,6 +338,11 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
           </div>
         )}
 
+        {archivado && (
+          <div className="aviso" style={{ marginBottom: 8 }}>
+            Este movimiento ya está archivado en un cierre de cuenta. Solo se puede mirar.
+          </div>
+        )}
         <div className="actions">
           {puedeAprobar && (
             <button type="button" className="btn primary grow" disabled={guardando} onClick={() => accion("aprobar")}>
@@ -353,9 +359,11 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
               {mov.tipo === "Entrada" ? "Marcar depositado" : "Marcar pagado"}
             </button>
           )}
+          {!archivado && (
           <button type="submit" className={nuevo ? "btn primary grow" : "btn"} disabled={guardando}>
             {guardando ? "Guardando..." : nuevo ? "Guardar" : "Guardar cambios"}
           </button>
+          )}
           <button type="button" className="btn" onClick={onClose} disabled={guardando}>
             Cancelar
           </button>
