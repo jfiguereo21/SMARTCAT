@@ -19,6 +19,7 @@ export type Machine = {
   propiedad: Propiedad;
   dueno: string | null;
   pago_dueno: number | null;
+  descuenta_combustible_dueno: boolean; // al pago del dueño se le resta el combustible que echan
   notas: string | null;
 };
 

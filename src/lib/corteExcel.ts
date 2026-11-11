@@ -1,6 +1,6 @@
 // Excel del corte para enviar al cliente: resumen por máquina y detalle de las horas de cada día.
 
-import type { Corte } from "./corte";
+import type { Corte, PagoDueno } from "./corte";
 
 export type DetalleDia = { fecha: string; maquina: string; horas: number; tarifa: number; moneda: string; importe: number };
 
@@ -10,6 +10,7 @@ export async function construirExcelCorte(opts: {
   etiqueta: string;
   corte: Corte;
   detalle: DetalleDia[];
+  duenos?: PagoDueno[];
 }): Promise<ArrayBuffer> {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
@@ -76,6 +77,37 @@ export async function construirExcelCorte(opts: {
     r.getCell(6).numFmt = FMT;
   }
   det.views = [{ state: "frozen", ySplit: 1 }];
+
+  if (opts.duenos && opts.duenos.length > 0) {
+    const pd = wb.addWorksheet("Pago a dueños");
+    pd.columns = [
+      { header: "Máquina", width: 26 },
+      { header: "Dueño", width: 18 },
+      { header: "Pago por hora (RD$)", width: 18 },
+      { header: "Horas", width: 10 },
+      { header: "Bruto (RD$)", width: 16 },
+      { header: "Galones cliente", width: 15 },
+      { header: "Galones propios", width: 15 },
+      { header: "Descuento combustible (RD$)", width: 24 },
+      { header: "Pago neto (RD$)", width: 16 },
+    ];
+    pd.getRow(1).font = { bold: true };
+    pd.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8EEF4" } };
+    for (const d of opts.duenos) {
+      const r = pd.addRow([
+        d.maquina,
+        d.dueno ?? "",
+        d.pagoHora,
+        d.horas,
+        d.bruto,
+        d.galonesCliente,
+        d.galonesPropios,
+        d.descuentaCombustible ? (d.descuento ?? "falta precio") : 0,
+        d.neto ?? "",
+      ]);
+      for (const c of [3, 4, 5, 6, 7, 8, 9]) r.getCell(c).numFmt = FMT;
+    }
+  }
 
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }

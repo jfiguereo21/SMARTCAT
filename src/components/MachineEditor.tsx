@@ -36,6 +36,7 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
   const [propiedad, setPropiedad] = useState<Propiedad>(machine?.propiedad ?? "Propia");
   const [dueno, setDueno] = useState(machine?.dueno ?? "");
   const [pago, setPago] = useState(txt(machine?.pago_dueno));
+  const [descuentaComb, setDescuentaComb] = useState(machine?.descuenta_combustible_dueno ?? false);
   const [notas, setNotas] = useState(machine?.notas ?? "");
 
   const [error, setError] = useState("");
@@ -87,6 +88,7 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
       propiedad,
       dueno: propiedad === "Subcontratada" ? dueno.trim() || null : null,
       pago_dueno: propiedad === "Subcontratada" ? pagoNum : null,
+      descuenta_combustible_dueno: propiedad === "Subcontratada" ? descuentaComb : false,
       notas: notas.trim() || null,
     };
 
@@ -202,6 +204,7 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
           </select>
         </div>
         {propiedad === "Subcontratada" && (
+          <>
           <div className="grid2">
             <div className="field">
               <label htmlFor="f-dueno">Dueño</label>
@@ -212,6 +215,21 @@ export default function MachineEditor({ machine, onClose, onSaved }: Props) {
               <input id="f-pago" inputMode="decimal" value={pago} onChange={(e) => setPago(e.target.value)} />
             </div>
           </div>
+          <div className="field">
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={descuentaComb}
+                onChange={(e) => setDescuentaComb(e.target.checked)}
+                style={{ width: "auto" }}
+              />
+              Descontarle al dueño el combustible que le echan
+            </label>
+            <div className="hint">
+              En la pantalla Corte se muestra: horas × pago por hora − combustible (el del cliente al precio del día 25).
+            </div>
+          </div>
+          </>
         )}
 
         <div className="field">

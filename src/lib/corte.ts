@@ -7,7 +7,15 @@ import { corteDe } from "./conduces";
 import { descuentoCliente, redondear2, type PreciosCorte } from "./combustible";
 
 export type ConduceCorte = { machine_id: string; fecha: string; horas_cobrables: number; estado: string };
-export type CargaCorte = { machine_id: string; fecha: string; galones: number; origen: string; estado: string };
+export type CargaCorte = {
+  machine_id: string;
+  fecha: string;
+  galones: number;
+  origen: string;
+  estado: string;
+  monto?: number | null; // lo que costó la carga, cuando se anotó el precio
+  moneda?: Moneda;
+};
 
 export type LineaCorte = {
   acuerdoId: string;
@@ -153,4 +161,89 @@ export function armarCorte(
     pendientes,
     faltaPrecio,
   };
+}
+
+// --- Pago al dueño de una máquina subcontratada ---
+// Horas aprobadas del corte × lo que se le paga por hora al dueño. Si la máquina está marcada,
+// se le resta el combustible que le echaron: el del cliente al precio del día 25, el propio con su precio.
+
+export type PagoDueno = {
+  machineId: string;
+  maquina: string;
+  dueno: string | null;
+  pagoHora: number;
+  horas: number;
+  bruto: number;
+  descuentaCombustible: boolean;
+  galonesCliente: number;
+  galonesPropios: number;
+  descuentoCliente: number | null; // null = falta el precio del día 25
+  descuentoPropio: number | null; // null = hay cargas propias sin precio
+  descuento: number | null;
+  neto: number | null;
+};
+
+export function pagoDuenos(
+  clave: string,
+  maquinas: Pick<Machine, "id" | "nombre" | "propiedad" | "dueno" | "pago_dueno" | "descuenta_combustible_dueno">[],
+  conduces: ConduceCorte[],
+  cargas: CargaCorte[],
+  precios: PreciosCorte | null
+): PagoDueno[] {
+  const out: PagoDueno[] = [];
+  for (const m of maquinas) {
+    if (m.propiedad !== "Subcontratada" || m.pago_dueno == null) continue;
+    const horas = redondear2(
+      conduces
+        .filter((c) => c.machine_id === m.id && c.estado === "Aprobado" && corteDe(c.fecha).clave === clave)
+        .reduce((t, c) => t + c.horas_cobrables, 0)
+    );
+    const ok = cargas.filter(
+      (c) => c.machine_id === m.id && c.estado === "Aprobado" && corteDe(c.fecha).clave === clave
+    );
+    const galonesCliente = redondear2(ok.filter((c) => c.origen === "Cliente").reduce((t, c) => t + c.galones, 0));
+    const propias = ok.filter((c) => c.origen !== "Cliente");
+    const galonesPropios = redondear2(propias.reduce((t, c) => t + c.galones, 0));
+    if (horas <= 0 && galonesCliente <= 0 && galonesPropios <= 0) continue;
+
+    const bruto = redondear2(horas * m.pago_dueno);
+    const desc = m.descuenta_combustible_dueno;
+
+    let descuentoCliente: number | null = 0;
+    let descuentoPropio: number | null = 0;
+    if (desc) {
+      if (galonesCliente > 0) {
+        descuentoCliente = precios ? redondear2(galonesCliente * precios.precio_diesel_dop) : null;
+      }
+      if (propias.length > 0) {
+        let t = 0;
+        for (const c of propias) {
+          if (c.monto == null) {
+            descuentoPropio = null;
+            break;
+          }
+          t += c.moneda === "USD" ? (precios ? c.monto * precios.tasa_dolar : NaN) : c.monto;
+        }
+        if (descuentoPropio !== null) descuentoPropio = Number.isNaN(t) ? null : redondear2(t);
+      }
+    }
+    const completo = descuentoCliente != null && descuentoPropio != null;
+    const descuento = completo ? redondear2((descuentoCliente ?? 0) + (descuentoPropio ?? 0)) : null;
+    out.push({
+      machineId: m.id,
+      maquina: m.nombre,
+      dueno: m.dueno,
+      pagoHora: m.pago_dueno,
+      horas,
+      bruto,
+      descuentaCombustible: desc,
+      galonesCliente,
+      galonesPropios,
+      descuentoCliente,
+      descuentoPropio,
+      descuento,
+      neto: descuento == null ? null : redondear2(bruto - descuento),
+    });
+  }
+  return out.sort((a, b) => a.maquina.localeCompare(b.maquina));
 }

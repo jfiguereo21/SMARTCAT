@@ -7,7 +7,7 @@ import Nav from "@/components/Nav";
 import { acuerdoVigente, fmtMonto, fmtNum, hoyRD, type Acuerdo, type Machine } from "@/lib/machines";
 import { corteDe } from "@/lib/conduces";
 import type { PreciosCorte } from "@/lib/combustible";
-import { armarCorte, type CargaCorte, type ConduceCorte } from "@/lib/corte";
+import { armarCorte, pagoDuenos, type CargaCorte, type ConduceCorte } from "@/lib/corte";
 import { construirExcelCorte, type DetalleDia } from "@/lib/corteExcel";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -28,7 +28,7 @@ export default function CortePage() {
     const [m, c, f, a, p] = await Promise.all([
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("conduces").select("machine_id, fecha, horas_cobrables, estado").neq("estado", "Rechazado"),
-      supabase.from("fuel_logs").select("machine_id, fecha, galones, origen, estado").eq("origen", "Cliente"),
+      supabase.from("fuel_logs").select("machine_id, fecha, galones, origen, estado, monto, moneda"),
       supabase.from("acuerdos").select("*, machines(nombre), clients(nombre)"),
       supabase.from("corte_precios").select("*"),
     ]);
@@ -38,7 +38,13 @@ export default function CortePage() {
       setError("");
       setMaquinas((m.data ?? []) as Machine[]);
       setConduces(((c.data ?? []) as ConduceCorte[]).map((x) => ({ ...x, horas_cobrables: Number(x.horas_cobrables) })));
-      setCargas(((f.data ?? []) as CargaCorte[]).map((x) => ({ ...x, galones: Number(x.galones) })));
+      setCargas(
+        ((f.data ?? []) as CargaCorte[]).map((x) => ({
+          ...x,
+          galones: Number(x.galones),
+          monto: x.monto == null ? null : Number(x.monto),
+        }))
+      );
       setAcuerdos(((a.data ?? []) as Acuerdo[]).map((x) => ({ ...x, tarifa: Number(x.tarifa) })));
       setPrecios(
         ((p.data ?? []) as PreciosCorte[]).map((x) => ({
@@ -73,6 +79,10 @@ export default function CortePage() {
     () => armarCorte(clave, maquinas, conduces, cargas, acuerdos, precio),
     [clave, maquinas, conduces, cargas, acuerdos, precio]
   );
+  const duenos = useMemo(
+    () => pagoDuenos(clave, maquinas, conduces, cargas, precio),
+    [clave, maquinas, conduces, cargas, precio]
+  );
   const hayDatos = corte.grupos.length > 0 || corte.horasSinAcuerdo.length > 0;
 
   async function descargar() {
@@ -93,7 +103,7 @@ export default function CortePage() {
           importe: Math.round(c.horas_cobrables * a.tarifa * 100) / 100,
         });
       }
-      const buf = await construirExcelCorte({ etiqueta, corte, detalle });
+      const buf = await construirExcelCorte({ etiqueta, corte, detalle, duenos });
       const url = URL.createObjectURL(new Blob([buf], { type: XLSX_MIME }));
       const a = document.createElement("a");
       a.href = url;
@@ -192,6 +202,45 @@ export default function CortePage() {
             ))}
           </div>
         ))
+      )}
+
+      {!cargando && duenos.length > 0 && (
+        <div className="resumen">
+          <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Pago a dueños de máquinas</h2>
+          {duenos.map((d) => (
+            <div key={d.machineId} style={{ marginBottom: 12 }}>
+              <b>{d.maquina}</b>
+              {d.dueno ? ` · ${d.dueno}` : ""}
+              <div className="line">
+                {fmtNum(d.horas, 2)} h × {fmtMonto(d.pagoHora, "DOP")} = <b>{fmtMonto(d.bruto, "DOP")}</b>
+              </div>
+              {d.descuentaCombustible && (d.galonesCliente > 0 || d.galonesPropios > 0) && (
+                <>
+                  {d.galonesCliente > 0 && (
+                    <div className="line">
+                      Combustible del cliente: {fmtNum(d.galonesCliente, 2)} gal
+                      {d.descuentoCliente != null ? ` = −${fmtMonto(d.descuentoCliente, "DOP")}` : " (falta el precio del día 25)"}
+                    </div>
+                  )}
+                  {d.galonesPropios > 0 && (
+                    <div className="line">
+                      Combustible comprado por ti: {fmtNum(d.galonesPropios, 2)} gal
+                      {d.descuentoPropio != null ? ` = −${fmtMonto(d.descuentoPropio, "DOP")}` : " (falta el precio de esa carga)"}
+                    </div>
+                  )}
+                </>
+              )}
+              {d.neto != null ? (
+                <div className="total-h" style={{ fontSize: 20 }}>
+                  {d.descuentaCombustible ? "Pago neto al dueño" : "Pago al dueño"}: {fmtMonto(d.neto, "DOP")}
+                </div>
+              ) : (
+                <div className="aviso">Incompleto: falta un precio para calcular el descuento.</div>
+              )}
+              {!d.descuentaCombustible && <div className="hint">Esta máquina no tiene marcado descontar combustible.</div>}
+            </div>
+          ))}
+        </div>
       )}
     </main>
   );
