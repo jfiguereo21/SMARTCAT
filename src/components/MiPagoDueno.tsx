@@ -60,7 +60,8 @@ export default function MiPagoDueno({ onEsDueno }: { onEsDueno: (esDueno: boolea
   if (error) return <div className="error">{error}</div>;
   if (!datos || datos.length === 0) return null;
 
-  const etiqueta = corteDe(clave).etiqueta;
+  // Mientras el corte no ha cerrado, el precio del combustible y las horas todavía pueden cambiar.
+  const abierto = clave >= hoyRD();
 
   return (
     <div className="resumen" style={{ marginBottom: 16 }}>
@@ -89,12 +90,17 @@ export default function MiPagoDueno({ onEsDueno }: { onEsDueno: (esDueno: boolea
           )}
           {d.neto != null ? (
             <div className="total-h" style={{ fontSize: 22 }}>
-              Te toca: {dinero(d.neto)}
+              {abierto ? "Llevas a la fecha" : "Te toca"}: {dinero(d.neto)}
             </div>
           ) : (
             <div className="aviso">Todavía no se puede calcular: falta el precio del combustible de este corte.</div>
           )}
-          <div className="hint">Solo cuentan las horas y cargas ya aprobadas. Las de {etiqueta} que falten aparecerán cuando se aprueben.</div>
+          <div className="hint">
+            {abierto
+              ? "El corte sigue abierto: el monto sube cuando se aprueban más horas, y el precio del combustible se confirma el día 25."
+              : "Corte cerrado."}{" "}
+            Solo cuentan las horas y cargas ya aprobadas.
+          </div>
           <button type="button" className="btn small" onClick={() => setVerDias((v) => !v)}>
             {verDias ? "Ocultar detalle" : "Ver detalle por día"}
           </button>

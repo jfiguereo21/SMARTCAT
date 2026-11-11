@@ -141,7 +141,7 @@ export default function OperadorPage() {
 
           {cargando && <div className="empty">Cargando...</div>}
           {vista === "horas" && !cargando && !error && conduces.length === 0 && maquinas.length > 0 && (
-            <div className="empty">Aún no has reportado ningún día.</div>
+            <div className="empty">{esDueno ? "Aquí aparecerán los días que reportes desde hoy. Los días anteriores ya los cargó la oficina y están en el detalle de arriba." : "Aún no has reportado ningún día."}</div>
           )}
           {vista === "combustible" && !cargando && !error && cargas.length === 0 && maquinas.length > 0 && (
             <div className="empty">Aún no has cargado combustible.</div>
