@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import OperadorForm, { type MaquinaOperador } from "@/components/OperadorForm";
 import FuelOperadorForm from "@/components/FuelOperadorForm";
 import MiPago from "@/components/MiPago";
+import MiPagoDueno from "@/components/MiPagoDueno";
 import FallaOperadorForm from "@/components/FallaOperadorForm";
 import type { ReporteFalla } from "@/lib/fallas";
 import type { FuelLog } from "@/lib/combustible";
@@ -14,6 +15,8 @@ import { fmtFecha, type Conduce } from "@/lib/conduces";
 
 export default function OperadorPage() {
   const [uid, setUid] = useState("");
+  // undefined = todavía no se sabe; true = dueño de la máquina que opera (ve el pago de su máquina)
+  const [esDueno, setEsDueno] = useState<boolean | undefined>(undefined);
   const [nombre, setNombre] = useState("");
   const [rol, setRol] = useState("");
   const [maquinas, setMaquinas] = useState<MaquinaOperador[]>([]);
@@ -107,7 +110,8 @@ export default function OperadorPage() {
         <div className="empty">Esta pantalla es para los operadores. Tú trabajas desde el panel.</div>
       ) : (
         <>
-          {rol === "operador" && uid && <MiPago uid={uid} conduces={conduces} />}
+          {rol === "operador" && <MiPagoDueno onEsDueno={setEsDueno} />}
+          {rol === "operador" && uid && esDueno === false && <MiPago uid={uid} conduces={conduces} />}
 
           <div className="tabs" style={{ marginBottom: 12 }}>
             <button className={vista === "horas" ? "tab on" : "tab"} onClick={() => setVista("horas")}>
