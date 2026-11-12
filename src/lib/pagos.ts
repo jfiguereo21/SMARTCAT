@@ -1,8 +1,10 @@
 // Reglas de pago a los operadores. Todo el dinero va en pesos (RD$).
 //
-// Día normal (lunes a sábado) con conduce: se paga lo que diga el conduce, con mínimo 8 horas.
+// Día normal (lunes a sábado) con conduce: mínimo 8 horas; si trabajó más, se pagan horas completas
+// (cualquier fracción cuenta como hora completa: 8.2 h = 9 h, 9.5 h = 10 h).
 // Día normal sin conduce: 4 horas.
-// Domingo o festivo: no se paga, salvo que pidan la máquina; entonces se paga el doble de lo que diga el conduce.
+// Domingo o festivo: no se paga, salvo que pidan la máquina; entonces se paga el doble de las horas del conduce
+// (sin mínimo y sin redondear a horas completas).
 // El administrador puede reemplazar las horas de cualquier día (falta, taller, vacaciones...).
 
 export const MIN_HORAS_DIA = 8;
@@ -10,6 +12,11 @@ export const HORAS_SIN_CONDUCE = 4;
 export const FACTOR_DOBLE = 2;
 
 export const redondear2 = (n: number) => Math.round(n * 100) / 100;
+
+// Horas que se pagan en un día normal con conduce: mínimo 8 y siempre horas completas hacia arriba.
+export function horasPagablesDiaNormal(horas: number): number {
+  return Math.max(MIN_HORAS_DIA, Math.ceil(redondear2(horas)));
+}
 
 // --- Fechas AAAA-MM-DD sin zonas horarias ---
 
@@ -171,7 +178,7 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
       dias.push(
         noLaboral
           ? { ...base, tipo: "doble", horasPagadas: redondear2(aprobadas * FACTOR_DOBLE), nota: null, fueAlCampo: true }
-          : { ...base, tipo: "normal", horasPagadas: Math.max(MIN_HORAS_DIA, aprobadas), nota: null, fueAlCampo: true }
+          : { ...base, tipo: "normal", horasPagadas: horasPagablesDiaNormal(aprobadas), nota: null, fueAlCampo: true }
       );
     } else if (pendientes > 0) {
       dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: null, fueAlCampo: false });
