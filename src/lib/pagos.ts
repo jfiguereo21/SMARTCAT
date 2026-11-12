@@ -1,7 +1,7 @@
 // Reglas de pago a los operadores. Todo el dinero va en pesos (RD$).
 //
-// Día normal (lunes a sábado) con conduce: mínimo 8 horas; si trabajó más, se pagan horas completas
-// (cualquier fracción cuenta como hora completa: 8.2 h = 9 h, 9.5 h = 10 h).
+// Día normal (lunes a sábado) con conduce: mínimo 8 horas; si trabajó más, se pagan horas completas hacia arriba,
+// con 15 minutos de margen: 8 h 15 min = 8 h; 8 h 16 min = 9 h; 9 h 30 min = 10 h.
 // Día normal sin conduce: 4 horas.
 // Domingo o festivo: no se paga, salvo que pidan la máquina; entonces se paga el doble de las horas del conduce
 // (sin mínimo y sin redondear a horas completas).
@@ -13,9 +13,16 @@ export const FACTOR_DOBLE = 2;
 
 export const redondear2 = (n: number) => Math.round(n * 100) / 100;
 
-// Horas que se pagan en un día normal con conduce: mínimo 8 y siempre horas completas hacia arriba.
+export const MARGEN_REDONDEO_HORAS = 0.25; // 15 minutos
+
+// Horas que se pagan en un día normal con conduce: mínimo 8 y horas completas hacia arriba.
+// Hasta 15 minutos pasada la hora completa no cuentan; si pasa de 15 minutos, se paga la hora siguiente.
 export function horasPagablesDiaNormal(horas: number): number {
-  return Math.max(MIN_HORAS_DIA, Math.ceil(redondear2(horas)));
+  const r = redondear2(horas);
+  const piso = Math.floor(r);
+  const fraccion = redondear2(r - piso);
+  const completas = fraccion <= MARGEN_REDONDEO_HORAS ? piso : piso + 1;
+  return Math.max(MIN_HORAS_DIA, completas);
 }
 
 // --- Fechas AAAA-MM-DD sin zonas horarias ---
