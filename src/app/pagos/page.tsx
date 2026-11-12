@@ -16,6 +16,7 @@ import {
   fmtCorta,
   quincenaDe,
   redondear2,
+  resumenPendiente,
   saldoDeuda,
   totalizar,
   type AjusteRow,
@@ -107,10 +108,12 @@ export default function PagosPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [elegido, setElegido] = useState<string | null>(null);
+  // Operadores que son dueños de la máquina que operan: cobran en Corte, no por horas.
+  const [duenos, setDuenos] = useState<string[]>([]);
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [p, c, f, a, d, ds, pg] = await Promise.all([
+    const [p, c, f, a, d, ds, pg, mq] = await Promise.all([
       supabase
         .from("perfiles")
         .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario")
@@ -122,8 +125,9 @@ export default function PagosPage() {
       supabase.from("deudas").select("*").order("fecha"),
       supabase.from("descuentos_deuda").select("*"),
       supabase.from("pagos_operador").select("*"),
+      supabase.from("machines").select("dueno_user_id").not("dueno_user_id", "is", null),
     ]);
-    const fallo = p.error ?? c.error ?? f.error ?? a.error ?? d.error ?? ds.error ?? pg.error;
+    const fallo = p.error ?? c.error ?? f.error ?? a.error ?? d.error ?? ds.error ?? pg.error ?? mq.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -136,6 +140,7 @@ export default function PagosPage() {
       setDeudas((d.data ?? []).map(aDeudaRow));
       setDescuentos((ds.data ?? []).map(aDescuentoRow));
       setPagos((pg.data ?? []).map(aPagoRow));
+      setDuenos((mq.data ?? []).map((x: { dueno_user_id: string | null }) => String(x.dueno_user_id)));
     }
     setCargando(false);
   }, []);
@@ -168,6 +173,23 @@ export default function PagosPage() {
   const hoy = hoyRD();
   const actual = quincenaDe(hoy);
   const perfilElegido = perfiles.find((p) => p.user_id === elegido) ?? null;
+  const cobranPorHoras = perfiles.filter((p) => !duenos.includes(p.user_id));
+  const ajustesDe = (d: DatosOperador) =>
+    Object.fromEntries(d.ajustes.map((a) => [a.fecha, { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }]));
+  const pendienteDe = (p: PerfilPago) => {
+    const d = datosDe(p);
+    return resumenPendiente({
+      perfil: p,
+      hoy,
+      conduces: d.conduces,
+      feriados: feriadosMapa,
+      ajustes: ajustesDe(d),
+      deudas: d.deudas,
+      descuentos: d.descuentos,
+      pagos: d.pagos,
+    });
+  };
+  const totalPorPagar = redondear2(cobranPorHoras.reduce((a, p) => a + pendienteDe(p).total, 0));
 
   return (
     <main className="wrap">
@@ -186,8 +208,19 @@ export default function PagosPage() {
           {cargando && <div className="empty">Cargando...</div>}
           {!cargando && !error && perfiles.length === 0 && <div className="empty">Todavía no hay operadores.</div>}
 
-          {perfiles.map((p) => {
+          {!cargando && cobranPorHoras.length > 0 && (
+            <div className="resumen" style={{ marginBottom: 12 }}>
+              <div className="hint" style={{ marginTop: 0 }}>Total que debes pagar a los operadores, hasta hoy</div>
+              <div className="total-h" style={{ fontSize: 24 }}>{fmtMonto(totalPorPagar, "DOP")}</div>
+              <div className="hint">
+                Suma de lo que cada uno lleva sin pagar: horas, dieta y combustible, menos lo que se les descuenta por deudas.
+              </div>
+            </div>
+          )}
+
+          {cobranPorHoras.map((p) => {
             const d = datosDe(p);
+            const pend = pendienteDe(p);
             const dias = calcularDias({
               inicio: actual.inicio,
               fin: actual.fin,
@@ -217,7 +250,18 @@ export default function PagosPage() {
                   </div>
                 </div>
                 <div className="line">
-                  Lleva ganado {fmtMonto(tot.bruto, "DOP")} en esta quincena
+                  Debes pagarle hasta hoy: <b>{fmtMonto(pend.total, "DOP")}</b>
+                  {pend.proximoPago ? ` · próximo pago de horas el ${fmtCorta(pend.proximoPago)}` : ""}
+                </div>
+                {(pend.ganado > 0 || pend.campo.dias > 0) && (
+                  <div className="line">
+                    Horas: {fmtNum(pend.horas, 2)} h = {fmtMonto(pend.ganado, "DOP")} · Dieta y combustible:{" "}
+                    {fmtMonto(redondear2(pend.campo.dieta + pend.campo.combustible), "DOP")}
+                    {pend.descuento > 0 ? ` · Descuento por deudas: −${fmtMonto(pend.descuento, "DOP")}` : ""}
+                  </div>
+                )}
+                <div className="line">
+                  En esta quincena lleva {fmtMonto(tot.bruto, "DOP")} en horas
                   {tot.pendientes > 0 ? ` · ${fmtNum(tot.pendientes, 2)} h por aprobar` : ""}
                 </div>
                 {debe > 0 && <div className="line">Debe {fmtMonto(debe, "DOP")}</div>}
@@ -227,6 +271,14 @@ export default function PagosPage() {
               </button>
             );
           })}
+
+          {perfiles
+            .filter((p) => duenos.includes(p.user_id))
+            .map((p) => (
+              <div className="hint" key={p.user_id} style={{ marginTop: 8 }}>
+                {p.nombre || "Un operador"} es dueño de la máquina que opera: lo suyo se ve en Corte (Pago a dueños), no aquí.
+              </div>
+            ))}
 
           <Feriados feriados={feriados} onChanged={cargar} />
         </>
