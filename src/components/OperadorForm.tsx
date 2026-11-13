@@ -54,7 +54,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
   const [fotoHoro, setFotoHoro] = useState<File | null>(null);
 
   const [partesAbiertas, setPartesAbiertas] = useState<ParteAbierta[]>([]);
-  const [parteId, setParteId] = useState(conduce?.parte_id ?? "");
+  // "" = sin escoger, "hora" = trabajo por hora, o el id de la piscina
+  const [parteId, setParteId] = useState(conduce ? conduce.parte_id ?? "hora" : "");
   const [terminada, setTerminada] = useState(conduce?.parte_terminada ?? false);
 
   const [error, setError] = useState("");
@@ -72,7 +73,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
       .then(({ data }) => setPartesAbiertas((data ?? []) as ParteAbierta[]));
   }, []);
   const partesMaquina = partesAbiertas.filter((p) => p.machine_id === machineId);
-  const parteValida = parteId !== "" && partesMaquina.some((p) => p.parte_id === parteId) ? parteId : "";
+  const parteValida = parteId !== "" && parteId !== "hora" && partesMaquina.some((p) => p.parte_id === parteId) ? parteId : "";
+  const eleccion = parteValida !== "" ? parteValida : parteId === "hora" ? "hora" : "";
 
   const calculadas = sumaTramos(tramos);
   const escritasNum = aHoras(escritas);
@@ -101,6 +103,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
         tramosUsados.push(t);
       }
       if (tramosUsados.length === 0) return setError("Pon la hora de entrada y la de salida.");
+      if (partesMaquina.length > 0 && eleccion === "")
+        return setError("Escoge si este conduce es de trabajo por hora o de una piscina.");
       if (escritas.trim() !== "" && escritasNum == null)
         return setError("El total del conduce tiene que ser un número, por ejemplo 8 o 7:30.");
       const hNum = aNumero(horometro);
@@ -318,22 +322,26 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
             </div>
             {partesMaquina.length > 0 && (
               <div className="field">
-                <label htmlFor="o-parte">¿En cuál piscina trabajaste hoy?</label>
+                <label htmlFor="o-parte">¿Este conduce es por hora o de una piscina?</label>
                 <select
                   id="o-parte"
-                  value={parteValida}
+                  value={eleccion}
                   onChange={(e) => {
                     setParteId(e.target.value);
-                    if (e.target.value === "") setTerminada(false);
+                    if (e.target.value === "" || e.target.value === "hora") setTerminada(false);
                   }}
                 >
-                  <option value="">En ninguna</option>
+                  <option value="">Escoge una opción</option>
+                  <option value="hora">Trabajo por hora (no es de una piscina)</option>
                   {partesMaquina.map((p) => (
                     <option key={p.parte_id} value={p.parte_id}>
                       {p.parte} ({p.trabajo})
                     </option>
                   ))}
                 </select>
+                <div className="hint">
+                  Si hoy trabajaste en las dos cosas, sube un conduce por cada una: uno por hora y otro de la piscina.
+                </div>
                 {parteValida && (
                   <label className="check" style={{ marginTop: 8 }}>
                     <input type="checkbox" checked={terminada} onChange={(e) => setTerminada(e.target.checked)} />
