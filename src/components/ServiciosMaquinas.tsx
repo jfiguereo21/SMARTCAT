@@ -7,12 +7,19 @@ import { fmtFecha } from "@/lib/conduces";
 import {
   aMantenimiento,
   estadoMantenimiento,
+  horasPorConduces,
   INTERVALO_MANTENIMIENTO,
   ordenNivel,
   type Mantenimiento,
 } from "@/lib/mantenimiento";
 
-type Maq = { id: string; nombre: string; horometro: number | null; horometro_fecha: string | null };
+type Maq = {
+  id: string;
+  nombre: string;
+  horometro: number | null; // horas que se usan para el mantenimiento
+  horometro_fecha: string | null;
+  porConduces: boolean; // las horas salen de los conduces aprobados, no del horómetro
+};
 
 const pillDe = { vencido: "pill taller", proximo: "pill obra", al_dia: "pill disp", sin_dato: "pill obra" } as const;
 const textoPill = { vencido: "Le toca mantenimiento", proximo: "Ya viene", al_dia: "Al día", sin_dato: "Falta un dato" } as const;
@@ -34,21 +41,27 @@ export default function ServiciosMaquinas() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [m, s] = await Promise.all([
-      supabase.from("machines").select("id, nombre, horometro, horometro_fecha").order("nombre"),
+    const [m, s, c] = await Promise.all([
+      supabase.from("machines").select("id, nombre, horometro, horometro_fecha, mantenimiento_por").order("nombre"),
       supabase.from("mantenimientos").select("*").order("horometro", { ascending: false }),
+      supabase.from("conduces").select("machine_id, horas_cobrables").eq("estado", "Aprobado"),
     ]);
-    const fallo = m.error ?? s.error;
+    const fallo = m.error ?? s.error ?? c.error;
     if (fallo) setError(`No se pudo cargar el mantenimiento: ${fallo.message}`);
     else {
       setError("");
       setMaquinas(
-        (m.data ?? []).map((x: Record<string, unknown>) => ({
-          id: String(x.id),
-          nombre: String(x.nombre),
-          horometro: x.horometro == null ? null : Number(x.horometro),
-          horometro_fecha: (x.horometro_fecha as string | null) ?? null,
-        }))
+        (m.data ?? []).map((x: Record<string, unknown>) => {
+          const porConduces = x.mantenimiento_por === "conduces";
+          const id = String(x.id);
+          return {
+            id,
+            nombre: String(x.nombre),
+            horometro: porConduces ? horasPorConduces(id, c.data ?? []) : x.horometro == null ? null : Number(x.horometro),
+            horometro_fecha: porConduces ? null : ((x.horometro_fecha as string | null) ?? null),
+            porConduces,
+          };
+        })
       );
       setServicios((s.data ?? []).map(aMantenimiento));
     }
@@ -149,12 +162,18 @@ export default function ServiciosMaquinas() {
             </>
           )}
           {m.horometro_fecha && <div className="line">Horómetro del {fmtFecha(m.horometro_fecha)}</div>}
+          {m.porConduces && (
+            <div className="line">
+              Esta máquina cuenta las horas de sus conduces aprobados (horas facturables), no el horómetro. Cada día que se
+              aprueba un conduce, sus horas se suman aquí.
+            </div>
+          )}
 
           {registrando === m.id ? (
             <div style={{ marginTop: 12 }}>
               <label htmlFor={`mf-${m.id}`}>Fecha del mantenimiento</label>
               <input id={`mf-${m.id}`} type="date" value={fecha} onChange={(ev) => setFecha(ev.target.value)} />
-              <label htmlFor={`mh-${m.id}`}>Horas que marcaba el horómetro</label>
+              <label htmlFor={`mh-${m.id}`}>{m.porConduces ? "Horas acumuladas de la máquina" : "Horas que marcaba el horómetro"}</label>
               <input
                 id={`mh-${m.id}`}
                 inputMode="decimal"

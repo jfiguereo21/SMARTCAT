@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MachineEditor from "@/components/MachineEditor";
 import Nav from "@/components/Nav";
-import { aMantenimiento, estadoMantenimiento, type Mantenimiento } from "@/lib/mantenimiento";
+import { aMantenimiento, estadoMantenimiento, horasPorConduces, type ConduceHoras, type Mantenimiento } from "@/lib/mantenimiento";
 import {
   acuerdoVigente,
   fmtNum,
@@ -25,6 +25,7 @@ export default function MaquinasPage() {
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
   const [servicios, setServicios] = useState<Mantenimiento[]>([]);
+  const [horasConduces, setHorasConduces] = useState<ConduceHoras[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   // undefined = editor cerrado, null = máquina nueva, Machine = editando
@@ -32,10 +33,11 @@ export default function MaquinasPage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [m, a, sv] = await Promise.all([
+    const [m, a, sv, cd] = await Promise.all([
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("acuerdos").select("*, clients(nombre)").order("fecha_inicio", { ascending: false }),
       supabase.from("mantenimientos").select("*"),
+      supabase.from("conduces").select("machine_id, horas_cobrables").eq("estado", "Aprobado"),
     ]);
     const fallo = m.error ?? a.error;
     if (fallo) setError(`No se pudieron cargar las máquinas: ${fallo.message}`);
@@ -43,6 +45,7 @@ export default function MaquinasPage() {
       setError("");
       setMaquinas((m.data ?? []) as Machine[]);
       setServicios((sv.data ?? []).map(aMantenimiento));
+      setHorasConduces((cd.data ?? []) as ConduceHoras[]);
       setAcuerdos(
         ((a.data ?? []) as unknown as Acuerdo[]).map((x) => ({ ...x, tarifa: Number(x.tarifa) }))
       );
@@ -75,7 +78,9 @@ export default function MaquinasPage() {
         const detalle = [specs, m.anio ? String(m.anio) : null, m.serie].filter(Boolean).join(" · ");
         const acuerdo = acuerdoVigente(acuerdos, m.id, hoyRD());
         const margen = lineaMargen(m, acuerdo);
-        const mant = estadoMantenimiento(m.horometro, servicios.filter((x) => x.machine_id === m.id));
+        const horasMant =
+          (m as { mantenimiento_por?: string }).mantenimiento_por === "conduces" ? horasPorConduces(m.id, horasConduces) : m.horometro;
+        const mant = estadoMantenimiento(horasMant, servicios.filter((x) => x.machine_id === m.id));
         return (
           <button key={m.id} className="card" onClick={() => setEditando(m)}>
             <div className="row">

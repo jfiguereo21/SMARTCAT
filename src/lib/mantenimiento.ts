@@ -74,3 +74,11 @@ export function estadoMantenimiento(
 
 // Qué tan urgente es (para ordenar: lo vencido primero)
 export const ordenNivel: Record<NivelMant, number> = { vencido: 0, proximo: 1, sin_dato: 2, al_dia: 3 };
+
+// Máquinas cuyo horómetro no es confiable: llevan las horas sumando los conduces aprobados (horas cobrables).
+export type ConduceHoras = { machine_id: string; horas_cobrables: number | string | null };
+
+export function horasPorConduces(machineId: string, conduces: ConduceHoras[]): number {
+  const total = conduces.filter((c) => c.machine_id === machineId).reduce((a, c) => a + Number(c.horas_cobrables ?? 0), 0);
+  return Math.round(total * 100) / 100;
+}
