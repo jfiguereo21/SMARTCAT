@@ -168,11 +168,12 @@ export type Trato = Partial<
   >
 >;
 
-// El trato de un día concreto. El combustible va siempre por día (si se paga por semana, se divide entre 7).
+// El trato de un día concreto. El combustible va siempre por día (si se paga por semana, se divide entre los 6 días de lunes a sábado; el domingo no suma combustible).
 export type TratoDia = {
   tarifa_hora: number | null;
   dieta_diaria: number;
   combustible_diario: number;
+  combustible_semanal: boolean; // el combustible es un monto por semana (lunes a sábado)
   minimo_horas_dia: number;
   minimo_horas_sabado: number;
   horas_alojamiento: number;
@@ -196,7 +197,7 @@ export type TratoRow = {
   nota: string | null;
 };
 
-export const combustiblePorDia = (monto: number, por: "dia" | "semana") => (por === "semana" ? monto / 7 : monto);
+export const combustiblePorDia = (monto: number, por: "dia" | "semana") => (por === "semana" ? monto / 6 : monto);
 
 export const aTratoRow = (x: Record<string, unknown>): TratoRow => ({
   id: String(x.id),
@@ -219,6 +220,7 @@ export function tratoBase(t: Trato): TratoDia {
     tarifa_hora: t.tarifa_hora ?? null,
     dieta_diaria: t.dieta_diaria ?? 0,
     combustible_diario: combustiblePorDia(t.combustible_diario ?? 0, t.combustible_por ?? "dia"),
+    combustible_semanal: (t.combustible_por ?? "dia") === "semana",
     minimo_horas_dia: t.minimo_horas_dia ?? MIN_HORAS_DIA,
     minimo_horas_sabado: t.minimo_horas_sabado ?? MIN_HORAS_DIA,
     horas_alojamiento: t.horas_alojamiento ?? 4,
@@ -236,6 +238,7 @@ export function tratoVigente(base: Trato, tratos: TratoRow[] | undefined, fecha:
     tarifa_hora: r.tarifa_hora,
     dieta_diaria: r.dieta_diaria,
     combustible_diario: combustiblePorDia(r.combustible_monto, r.combustible_por),
+    combustible_semanal: r.combustible_por === "semana",
     minimo_horas_dia: r.minimo_horas_dia,
     minimo_horas_sabado: r.minimo_horas_sabado,
     horas_alojamiento: r.horas_alojamiento,
@@ -274,7 +277,7 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
       feriado,
       tarifa: t.tarifa_hora,
       dieta: t.dieta_diaria,
-      combustible: t.combustible_diario,
+      combustible: t.combustible_semanal && diaSemana(fecha) === 0 ? 0 : t.combustible_diario,
     };
 
     if (ajuste?.porAprobar) {

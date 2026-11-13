@@ -167,7 +167,7 @@ export default function TratosOperador({ perfil }: { perfil: PerfilPago }) {
             <label>El combustible se da por</label>
             <select value={combPor} onChange={(e) => setCombPor(e.target.value as "dia" | "semana")}>
               <option value="dia">Día</option>
-              <option value="semana">Semana (se reparte entre los 7 días)</option>
+              <option value="semana">Semana (se reparte entre lunes y sábado; el domingo no suma)</option>
             </select>
           </div>
           <div className="grid2">
