@@ -146,7 +146,10 @@ export default function TrabajosPage() {
   }, []);
 
   useEffect(() => {
-    cargar();
+    cargar().then(() => {
+      const id = new URLSearchParams(window.location.search).get("abrir");
+      if (id) setAbierto(id);
+    });
   }, [cargar]);
 
   const hoy = hoyRD();

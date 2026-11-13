@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MachineEditor from "@/components/MachineEditor";
 import Nav from "@/components/Nav";
+import { aTrabajo, type Trabajo } from "@/lib/trabajos";
 import { aMantenimiento, estadoMantenimiento, horasPorConduces, type ConduceHoras, type Mantenimiento } from "@/lib/mantenimiento";
 import {
   acuerdoVigente,
@@ -25,6 +26,7 @@ export default function MaquinasPage() {
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
   const [servicios, setServicios] = useState<Mantenimiento[]>([]);
+  const [trabajos, setTrabajos] = useState<Trabajo[]>([]);
   const [horasConduces, setHorasConduces] = useState<ConduceHoras[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -33,11 +35,12 @@ export default function MaquinasPage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [m, a, sv, cd] = await Promise.all([
+    const [m, a, sv, cd, tj] = await Promise.all([
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("acuerdos").select("*, clients(nombre)").order("fecha_inicio", { ascending: false }),
       supabase.from("mantenimientos").select("*"),
       supabase.from("conduces").select("machine_id, horas_cobrables").eq("estado", "Aprobado"),
+      supabase.from("trabajos").select("*").eq("estado", "Abierto"),
     ]);
     const fallo = m.error ?? a.error;
     if (fallo) setError(`No se pudieron cargar las máquinas: ${fallo.message}`);
@@ -45,6 +48,7 @@ export default function MaquinasPage() {
       setError("");
       setMaquinas((m.data ?? []) as Machine[]);
       setServicios((sv.data ?? []).map(aMantenimiento));
+      setTrabajos((tj.data ?? []).map(aTrabajo));
       setHorasConduces((cd.data ?? []) as ConduceHoras[]);
       setAcuerdos(
         ((a.data ?? []) as unknown as Acuerdo[]).map((x) => ({ ...x, tarifa: Number(x.tarifa) }))
@@ -98,7 +102,9 @@ export default function MaquinasPage() {
             </div>
             {detalle && <div className="line">{detalle}</div>}
             <div className="line">
-              {fmtTarifa(acuerdo)}
+              {!acuerdo && trabajos.some((t) => t.machine_id === m.id)
+                ? `Trabajo por ajuste: ${trabajos.find((t) => t.machine_id === m.id)!.nombre}`
+                : fmtTarifa(acuerdo)}
               {acuerdo?.clients?.nombre ? ` · ${acuerdo.clients.nombre}` : ""}
               {m.propiedad === "Subcontratada" && ` · Subcontratada${m.dueno ? `, de ${m.dueno}` : ""}`}
             </div>
