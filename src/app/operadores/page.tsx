@@ -6,7 +6,24 @@ import Nav from "@/components/Nav";
 import { aNumero, fmtMonto, fmtNum, hoyRD, type Machine } from "@/lib/machines";
 import { corteDe, resumenHoras, type Conduce } from "@/lib/conduces";
 import TratosOperador from "@/components/TratosOperador";
-import { aPerfilPago } from "@/lib/pagos";
+import Link from "next/link";
+import {
+  aAjusteRow,
+  aDeudaRow,
+  aDescuentoRow,
+  aPagoRow,
+  aPerfilPago,
+  aReporteDiaRow,
+  aTratoRow,
+  mapaAjustes,
+  resumenPendiente,
+  type AjusteRow,
+  type DeudaRow,
+  type DescuentoRow,
+  type PagoRow,
+  type ReporteDiaRow,
+  type TratoRow,
+} from "@/lib/pagos";
 
 type Perfil = {
   user_id: string;
@@ -233,13 +250,23 @@ export default function OperadoresPage() {
   const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
   const [conduces, setConduces] = useState<Pick<Conduce, "creado_por" | "fecha" | "estado" | "horas_cobrables">[]>([]);
+  // Datos para calcular lo que se le paga a cada operador (las mismas reglas de la pantalla Pagos)
+  const [pagoDatos, setPagoDatos] = useState<{
+    feriados: Record<string, string>;
+    ajustes: AjusteRow[];
+    reportes: ReporteDiaRow[];
+    tratos: TratoRow[];
+    deudas: DeudaRow[];
+    descuentos: DescuentoRow[];
+    pagos: PagoRow[];
+  }>({ feriados: {}, ajustes: [], reportes: [], tratos: [], deudas: [], descuentos: [], pagos: [] });
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [editando, setEditando] = useState<Perfil | null>(null);
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [p, a, m, c] = await Promise.all([
+    const [p, a, m, c, f, aj, rd, tr, de, ds, pg] = await Promise.all([
       supabase
         .from("perfiles")
         .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, minimo_horas_dia, minimo_horas_sabado, horas_alojamiento, horas_sin_conduce, dieta_siempre")
@@ -247,8 +274,16 @@ export default function OperadoresPage() {
       supabase.from("operador_maquinas").select("user_id, machine_id"),
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("conduces").select("creado_por, fecha, estado, horas_cobrables"),
+      supabase.from("feriados").select("fecha, nombre"),
+      supabase.from("dias_operador").select("*"),
+      supabase.from("reportes_dia").select("*"),
+      supabase.from("tratos_operador").select("*"),
+      supabase.from("deudas").select("*"),
+      supabase.from("descuentos_deuda").select("*"),
+      supabase.from("pagos_operador").select("*"),
     ]);
-    const fallo = p.error ?? a.error ?? m.error ?? c.error;
+    const fallo =
+      p.error ?? a.error ?? m.error ?? c.error ?? f.error ?? aj.error ?? rd.error ?? tr.error ?? de.error ?? ds.error ?? pg.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -266,6 +301,17 @@ export default function OperadoresPage() {
           dieta_siempre: Boolean(x.dieta_siempre),
         }))
       );
+      const fer: Record<string, string> = {};
+      (f.data ?? []).forEach((x: { fecha: string; nombre: string }) => (fer[x.fecha] = x.nombre));
+      setPagoDatos({
+        feriados: fer,
+        ajustes: (aj.data ?? []).map(aAjusteRow),
+        reportes: (rd.data ?? []).map(aReporteDiaRow),
+        tratos: (tr.data ?? []).map(aTratoRow),
+        deudas: (de.data ?? []).map(aDeudaRow),
+        descuentos: (ds.data ?? []).map(aDescuentoRow),
+        pagos: (pg.data ?? []).map(aPagoRow),
+      });
       setAsignaciones((a.data ?? []) as Asignacion[]);
       setMaquinas((m.data ?? []) as Machine[]);
       setConduces(
@@ -296,6 +342,25 @@ export default function OperadoresPage() {
     return mapa;
   }, [operadores, conduces, hoy]);
 
+  const esDueno = (uid: string) => maquinas.some((m) => (m as Machine & { dueno_user_id?: string | null }).dueno_user_id === uid);
+  const pendienteDe = (o: Perfil) =>
+    resumenPendiente({
+      perfil: aPerfilPago(o as unknown as Record<string, unknown>),
+      tratos: pagoDatos.tratos.filter((t) => t.user_id === o.user_id),
+      hoy,
+      conduces: conduces
+        .filter((c) => c.creado_por === o.user_id && c.estado !== "Rechazado")
+        .map((c) => ({ fecha: c.fecha, horas: c.horas_cobrables, aprobado: c.estado === "Aprobado" })),
+      feriados: pagoDatos.feriados,
+      ajustes: mapaAjustes(
+        pagoDatos.ajustes.filter((x) => x.user_id === o.user_id),
+        pagoDatos.reportes.filter((x) => x.user_id === o.user_id)
+      ),
+      deudas: pagoDatos.deudas.filter((x) => x.user_id === o.user_id),
+      descuentos: pagoDatos.descuentos.filter((x) => x.user_id === o.user_id),
+      pagos: pagoDatos.pagos.filter((x) => x.user_id === o.user_id),
+    });
+
   return (
     <main className="wrap">
       <Nav activa="operadores" />
@@ -315,10 +380,11 @@ export default function OperadoresPage() {
         <div className="empty">Todavía no hay operadores.</div>
       )}
 
-      {operadores.map((o) => {
+      {operadores.filter((o) => !esDueno(o.user_id)).map((o) => {
         const suyas = asignaciones.filter((a) => a.user_id === o.user_id).map((a) => a.machine_id);
         const nombres = suyas.map((id) => maquinas.find((m) => m.id === id)?.nombre).filter(Boolean).join(", ");
         const h = horasDe.get(o.user_id);
+        const pend = pendienteDe(o);
         return (
           <button key={o.user_id} className="card" onClick={() => setEditando(o)}>
             <div className="row">
@@ -327,17 +393,54 @@ export default function OperadoresPage() {
                 <span className={o.activo ? "pill disp" : "pill taller"}>{o.activo ? "Activo" : "Desactivado"}</span>
               </div>
               <div className="horas">
-                {fmtNum(h?.aprobadas ?? 0, 2)}
-                <small> h aprob.</small>
+                {fmtNum(pend.horas, 2)}
+                <small> h a pagar</small>
               </div>
             </div>
             <div className="line">{nombres || "Sin máquinas asignadas"}</div>
             <div className="line">
               {o.tarifa_hora != null ? `${fmtMonto(o.tarifa_hora, "DOP")} por hora` : "Sin precio por hora todavía"}
+              {pend.horas > 0 && o.tarifa_hora != null ? ` · ganado sin pagar: ${fmtMonto(pend.ganado, "DOP")}` : ""}
             </div>
             <div className="line">
-              Corte {etiquetaCorte}: {fmtNum(h?.pendientes ?? 0, 2)} h por aprobar
+              Horas de sus conduces en el corte {etiquetaCorte} (las que se cobran al cliente): {fmtNum(h?.aprobadas ?? 0, 2)} h
+              {h && h.pendientes > 0 ? ` · ${fmtNum(h.pendientes, 2)} h por aprobar` : ""}
               {h && h.rechazadas > 0 ? ` · ${fmtNum(h.rechazadas, 2)} h rechazadas` : ""}
+            </div>
+          </button>
+        );
+      })}
+
+      <div className="hint" style={{ marginTop: 8 }}>
+        "Horas a pagar" son las horas que se le pagan al operador: mínimo por día, horas completas hacia arriba, domingos
+        dobles y los días que reportó sin conduce. Son las de su pago sin cobrar. Las "horas de sus conduces" son las
+        horas reales de la máquina que se cobran al cliente, y por eso son menos. El detalle día por día y el total a
+        pagarle están en <Link href="/pagos" style={{ textDecoration: "underline" }}>Pagos</Link>.
+      </div>
+
+      {operadores.filter((o) => esDueno(o.user_id)).map((o) => {
+        const h = horasDe.get(o.user_id);
+        const nombres = asignaciones
+          .filter((a) => a.user_id === o.user_id)
+          .map((a) => maquinas.find((m) => m.id === a.machine_id)?.nombre)
+          .filter(Boolean)
+          .join(", ");
+        return (
+          <button key={o.user_id} className="card" onClick={() => setEditando(o)}>
+            <div className="row">
+              <div>
+                <h2>{o.nombre || "Sin nombre"}</h2>
+                <span className="pill obra">Dueño de la máquina</span>
+              </div>
+              <div className="horas">
+                {fmtNum(h?.aprobadas ?? 0, 2)}
+                <small> h de la máquina</small>
+              </div>
+            </div>
+            <div className="line">{nombres || "Sin máquinas asignadas"}</div>
+            <div className="line">
+              No cobra por hora de operador: lo suyo (horas × pago al dueño, menos el combustible) se ve en Corte, en
+              "Pago a dueños".
             </div>
           </button>
         );
