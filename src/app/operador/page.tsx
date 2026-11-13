@@ -8,6 +8,8 @@ import FuelOperadorForm from "@/components/FuelOperadorForm";
 import MiPago from "@/components/MiPago";
 import MiPagoDueno from "@/components/MiPagoDueno";
 import FallaOperadorForm from "@/components/FallaOperadorForm";
+import ReporteDiaForm from "@/components/ReporteDiaForm";
+import { ETIQUETA_REPORTE, aReporteDiaRow, type ReporteDiaRow } from "@/lib/pagos";
 import type { ReporteFalla } from "@/lib/fallas";
 import type { FuelLog } from "@/lib/combustible";
 import { fmtNum } from "@/lib/machines";
@@ -23,6 +25,9 @@ export default function OperadorPage() {
   const [conduces, setConduces] = useState<Conduce[]>([]);
   const [cargas, setCargas] = useState<FuelLog[]>([]);
   const [fallas, setFallas] = useState<ReporteFalla[]>([]);
+  const [reportesDia, setReportesDia] = useState<ReporteDiaRow[]>([]);
+  const [reportandoDia, setReportandoDia] = useState(false);
+  const [recarga, setRecarga] = useState(0);
   // undefined = cerrado, null = reporte nuevo, ReporteFalla = abierto
   const [falla, setFalla] = useState<ReporteFalla | null | undefined>(undefined);
   const [vista, setVista] = useState<"horas" | "combustible" | "fallas">("horas");
@@ -38,7 +43,7 @@ export default function OperadorPage() {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     setUid(u.user.id);
-    const [p, m, c, f, r] = await Promise.all([
+    const [p, m, c, f, r, rd] = await Promise.all([
       supabase.from("perfiles").select("nombre, rol").eq("user_id", u.user.id).maybeSingle(),
       supabase.from("operador_maquinas").select("machine_id, maquina_nombre").eq("user_id", u.user.id),
       supabase
@@ -58,8 +63,9 @@ export default function OperadorPage() {
         .select("*")
         .eq("creado_por", u.user.id)
         .order("created_at", { ascending: false }),
+      supabase.from("reportes_dia").select("*").eq("user_id", u.user.id).order("fecha", { ascending: false }),
     ]);
-    const fallo = p.error ?? m.error ?? c.error ?? f.error ?? r.error;
+    const fallo = p.error ?? m.error ?? c.error ?? f.error ?? r.error ?? rd.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -69,6 +75,8 @@ export default function OperadorPage() {
       setConduces(((c.data ?? []) as Conduce[]).map((x) => ({ ...x, horas_cobrables: Number(x.horas_cobrables) })));
       setCargas(((f.data ?? []) as FuelLog[]).map((x) => ({ ...x, galones: Number(x.galones) })));
       setFallas((r.data ?? []) as ReporteFalla[]);
+      setReportesDia((rd.data ?? []).map(aReporteDiaRow));
+      setRecarga((n) => n + 1);
     }
     setCargando(false);
   }, []);
@@ -76,6 +84,12 @@ export default function OperadorPage() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  async function quitarReporteDia(id: string) {
+    const { error: err } = await createClient().from("reportes_dia").delete().eq("id", id);
+    if (err) setError(`No se pudo quitar: ${err.message}`);
+    else cargar();
+  }
 
   async function salir() {
     await createClient().auth.signOut();
@@ -111,7 +125,7 @@ export default function OperadorPage() {
       ) : (
         <>
           {rol === "operador" && <MiPagoDueno onEsDueno={setEsDueno} />}
-          {rol === "operador" && uid && esDueno === false && <MiPago uid={uid} conduces={conduces} />}
+          {rol === "operador" && uid && esDueno === false && <MiPago uid={uid} conduces={conduces} recarga={recarga} />}
 
           <div className="tabs" style={{ marginBottom: 12 }}>
             <button className={vista === "horas" ? "tab on" : "tab"} onClick={() => setVista("horas")}>
@@ -133,6 +147,16 @@ export default function OperadorPage() {
           >
             {vista === "horas" ? "+ Reportar el día" : vista === "combustible" ? "+ Cargar combustible" : "+ Reportar una falla"}
           </button>
+          {vista === "horas" && (
+            <button
+              className="btn"
+              style={{ width: "100%", minHeight: 48, marginBottom: 16 }}
+              onClick={() => setReportandoDia(true)}
+              disabled={maquinas.length === 0}
+            >
+              Día sin conduce (alojamiento o reparando)
+            </button>
+          )}
           {!cargando && maquinas.length === 0 && (
             <div className="aviso" style={{ marginBottom: 12 }}>
               Todavía no tienes una máquina asignada. Habla con el administrador.
@@ -140,7 +164,7 @@ export default function OperadorPage() {
           )}
 
           {cargando && <div className="empty">Cargando...</div>}
-          {vista === "horas" && !cargando && !error && conduces.length === 0 && maquinas.length > 0 && (
+          {vista === "horas" && !cargando && !error && conduces.length === 0 && reportesDia.length === 0 && maquinas.length > 0 && (
             <div className="empty">{esDueno ? "Aquí aparecerán los días que reportes desde hoy. Los días anteriores ya los cargó la oficina y están en el detalle de arriba." : "Aún no has reportado ningún día."}</div>
           )}
           {vista === "combustible" && !cargando && !error && cargas.length === 0 && maquinas.length > 0 && (
@@ -196,6 +220,29 @@ export default function OperadorPage() {
                   <div className="alerta">Rechazada{x.motivo_rechazo ? `: ${x.motivo_rechazo}` : ""}. Toca para corregir.</div>
                 )}
               </button>
+            ))}
+
+          {vista === "horas" &&
+            reportesDia.map((r) => (
+              <div key={r.id} className="card">
+                <div className="row">
+                  <div>
+                    <h2>{fmtFecha(r.fecha)}</h2>
+                    <span className={r.estado === "Aprobado" ? "pill disp" : r.estado === "Rechazado" ? "pill taller" : "pill obra"}>
+                      {r.estado === "Pendiente" ? "Esperando aprobación" : r.estado}
+                    </span>
+                  </div>
+                  {r.estado !== "Aprobado" && (
+                    <button className="btn small danger" onClick={() => quitarReporteDia(r.id)}>
+                      Quitar
+                    </button>
+                  )}
+                </div>
+                <div className="line">{ETIQUETA_REPORTE[r.tipo]}{r.nota ? ` · ${r.nota}` : ""}</div>
+                {r.estado === "Rechazado" && (
+                  <div className="alerta">Rechazado{r.motivo_rechazo ? `: ${r.motivo_rechazo}` : ""}.</div>
+                )}
+              </div>
             ))}
 
           {vista === "horas" && conduces.map((c) => {
@@ -254,6 +301,17 @@ export default function OperadorPage() {
           onClose={() => setFalla(undefined)}
           onSaved={() => {
             setFalla(undefined);
+            cargar();
+          }}
+        />
+      )}
+
+      {reportandoDia && (
+        <ReporteDiaForm
+          uid={uid}
+          onClose={() => setReportandoDia(false)}
+          onSaved={() => {
+            setReportandoDia(false);
             cargar();
           }}
         />

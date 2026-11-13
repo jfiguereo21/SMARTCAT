@@ -146,7 +146,7 @@ export type DiaPago = {
 };
 
 export type ConduceDia = { fecha: string; horas: number; aprobado: boolean };
-export type AjusteDia = { horas: number; motivo: string | null; fueAlCampo?: boolean };
+export type AjusteDia = { horas: number; motivo: string | null; fueAlCampo?: boolean; porAprobar?: boolean };
 
 export type EntradaDias = {
   inicio: string;
@@ -156,6 +156,7 @@ export type EntradaDias = {
   conduces: ConduceDia[];
   feriados: Record<string, string>; // fecha -> nombre
   ajustes: Record<string, AjusteDia>; // fecha -> ajuste
+  horasSinConduce?: number; // horas de un día laboral sin conduce (por defecto 4)
 };
 
 export function calcularDias(e: EntradaDias): DiaPago[] {
@@ -170,6 +171,11 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
     const ajuste = e.ajustes[fecha];
     const base = { fecha, horasConduce: aprobadas, horasPendientes: pendientes, feriado };
 
+    if (ajuste?.porAprobar) {
+      // Reporte del operador sin aprobar: no se cuenta todavía
+      dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: ajuste.motivo, fueAlCampo: false });
+      continue;
+    }
     if (ajuste) {
       dias.push({
         ...base,
@@ -193,7 +199,7 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
       dias.push({ ...base, tipo: "no_paga", horasPagadas: 0, nota: null, fueAlCampo: false });
     } else if (fecha < e.hoy) {
       // El día de hoy sin conduce todavía no cuenta: el operador reporta al final del día.
-      dias.push({ ...base, tipo: "sin_conduce", horasPagadas: HORAS_SIN_CONDUCE, nota: null, fueAlCampo: false });
+      dias.push({ ...base, tipo: "sin_conduce", horasPagadas: e.horasSinConduce ?? HORAS_SIN_CONDUCE, nota: null, fueAlCampo: false });
     }
   }
   return dias;
@@ -252,9 +258,55 @@ export type PerfilPago = {
   paga_desde: string | null;
   dieta_diaria: number;
   combustible_diario: number;
+  horas_alojamiento: number; // horas que se pagan el día que reporta "estuve en el alojamiento"
+  horas_sin_conduce: number; // horas de un día de lunes a sábado sin conduce ni reporte (4 normal; 0 si no reporta no se paga)
 };
 
 export type AjusteRow = { user_id: string; fecha: string; horas: number; motivo: string | null; fue_al_campo: boolean };
+
+// Lo que el operador reporta cuando no hay conduce: estuvo en el alojamiento o trabajó reparando la máquina.
+export type TipoReporteDia = "alojamiento" | "reparacion";
+export const ETIQUETA_REPORTE: Record<TipoReporteDia, string> = {
+  alojamiento: "Estuve en el alojamiento (la máquina no trabajó)",
+  reparacion: "Trabajé reparando la máquina",
+};
+export type ReporteDiaRow = {
+  id: string;
+  user_id: string;
+  fecha: string;
+  tipo: TipoReporteDia;
+  nota: string | null;
+  estado: "Pendiente" | "Aprobado" | "Rechazado";
+  horas: number | null;
+  fue_al_campo: boolean;
+  motivo_rechazo: string | null;
+};
+export const aReporteDiaRow = (x: Record<string, unknown>): ReporteDiaRow => ({
+  id: String(x.id),
+  user_id: String(x.user_id),
+  fecha: String(x.fecha),
+  tipo: x.tipo as TipoReporteDia,
+  nota: (x.nota as string | null) ?? null,
+  estado: x.estado as ReporteDiaRow["estado"],
+  horas: x.horas == null ? null : Number(x.horas),
+  fue_al_campo: Boolean(x.fue_al_campo),
+  motivo_rechazo: (x.motivo_rechazo as string | null) ?? null,
+});
+
+// Mapa fecha -> ajuste para calcularDias: los ajustes del administrador mandan; después los reportes del
+// operador (aprobados cuentan con las horas que se aprobaron, pendientes quedan por aprobar, rechazados no cuentan).
+export function mapaAjustes(ajustes: AjusteRow[], reportes: ReporteDiaRow[] = []): Record<string, AjusteDia> {
+  const m: Record<string, AjusteDia> = {};
+  for (const r of reportes) {
+    if (r.estado === "Rechazado") continue;
+    m[r.fecha] =
+      r.estado === "Aprobado"
+        ? { horas: r.horas ?? 0, motivo: ETIQUETA_REPORTE[r.tipo], fueAlCampo: r.fue_al_campo }
+        : { horas: 0, motivo: ETIQUETA_REPORTE[r.tipo], fueAlCampo: false, porAprobar: true };
+  }
+  for (const a of ajustes) m[a.fecha] = { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo };
+  return m;
+}
 
 export type PagoRow = {
   id: string;
@@ -294,6 +346,8 @@ export const aPerfilPago = (x: Record<string, unknown>): PerfilPago => ({
   paga_desde: (x.paga_desde as string | null) ?? null,
   dieta_diaria: Number(x.dieta_diaria ?? 0),
   combustible_diario: Number(x.combustible_diario ?? 0),
+  horas_alojamiento: Number(x.horas_alojamiento ?? 4),
+  horas_sin_conduce: Number(x.horas_sin_conduce ?? HORAS_SIN_CONDUCE),
 });
 
 export const aPagoRow = (x: Record<string, unknown>): PagoRow => ({
@@ -344,11 +398,11 @@ export const aAjusteRow = (x: Record<string, unknown>): AjusteRow => ({
 
 export const etiquetaTipo: Record<TipoDia, string> = {
   normal: "Trabajó",
-  sin_conduce: "Sin conduce (4 h)",
+  sin_conduce: "Sin conduce ni reporte",
   doble: "Con la máquina en domingo o festivo (doble)",
   no_paga: "No se paga",
   ajuste: "Ajustado",
-  pendiente: "Conduce por aprobar",
+  pendiente: "Por aprobar",
 };
 
 // --- Dieta y combustible: se pagan por cada día que el operador fue al campo, y se entregan cada lunes ---
@@ -374,7 +428,7 @@ export type ResumenPendiente = {
 };
 
 export function resumenPendiente(e: {
-  perfil: Pick<PerfilPago, "tarifa_hora" | "paga_desde" | "dieta_diaria" | "combustible_diario">;
+  perfil: Pick<PerfilPago, "tarifa_hora" | "paga_desde" | "dieta_diaria" | "combustible_diario"> & Partial<Pick<PerfilPago, "horas_sin_conduce">>;
   hoy: string;
   conduces: ConduceDia[];
   feriados: Record<string, string>;
@@ -403,6 +457,7 @@ export function resumenPendiente(e: {
     conduces: e.conduces,
     feriados: e.feriados,
     ajustes: e.ajustes,
+    horasSinConduce: e.perfil.horas_sin_conduce,
   });
 
   // Quincenas sin pagar, de la más vieja a la más nueva

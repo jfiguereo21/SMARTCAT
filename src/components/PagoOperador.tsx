@@ -8,6 +8,7 @@ import {
   calcularDias,
   etiquetaTipo,
   fmtCorta,
+  mapaAjustes,
   nombreDia,
   planDescuentos,
   quincenaAnterior,
@@ -28,6 +29,7 @@ import {
   type PagoRow,
   type PerfilPago,
   type Quincena,
+  type ReporteDiaRow,
 } from "@/lib/pagos";
 
 export type DatosOperador = {
@@ -35,6 +37,7 @@ export type DatosOperador = {
   conduces: ConduceDia[];
   feriados: Record<string, string>;
   ajustes: AjusteRow[];
+  reportes: ReporteDiaRow[];
   deudas: DeudaRow[];
   descuentos: DescuentoRow[];
   pagos: PagoRow[];
@@ -220,11 +223,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
     setError("");
   }, [q.inicio]);
 
-  const ajustesMapa = useMemo(() => {
-    const m: Record<string, { horas: number; motivo: string | null; fueAlCampo: boolean }> = {};
-    d.ajustes.forEach((a) => (m[a.fecha] = { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }));
-    return m;
-  }, [d.ajustes]);
+  const ajustesMapa = useMemo(() => mapaAjustes(d.ajustes, d.reportes), [d.ajustes, d.reportes]);
 
   const dias = useMemo(
     () =>
@@ -236,8 +235,9 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         conduces: d.conduces,
         feriados: d.feriados,
         ajustes: ajustesMapa,
+        horasSinConduce: perfil.horas_sin_conduce,
       }),
-    [q, perfil.paga_desde, hoy, d.conduces, d.feriados, ajustesMapa]
+    [q, perfil.paga_desde, perfil.horas_sin_conduce, hoy, d.conduces, d.feriados, ajustesMapa]
   );
   const tot = totalizar(dias, perfil.tarifa_hora);
   const pago = d.pagos.find((p) => p.tipo === "quincena" && p.periodo_inicio === q.inicio && p.periodo_fin === q.fin);
@@ -513,11 +513,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
-  const ajustesMapa = useMemo(() => {
-    const m: Record<string, { horas: number; motivo: string | null; fueAlCampo: boolean }> = {};
-    d.ajustes.forEach((a) => (m[a.fecha] = { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }));
-    return m;
-  }, [d.ajustes]);
+  const ajustesMapa = useMemo(() => mapaAjustes(d.ajustes, d.reportes), [d.ajustes, d.reportes]);
 
   // Días de campo de cada semana, para calcular la dieta y el combustible
   const campoDe = (l: string) => {
@@ -530,6 +526,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
       conduces: d.conduces,
       feriados: d.feriados,
       ajustes: ajustesMapa,
+      horasSinConduce: perfil.horas_sin_conduce,
     });
     return { dias, total: totalCampo(dias, perfil.dieta_diaria, perfil.combustible_diario) };
   };

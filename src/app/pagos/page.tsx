@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
 import PagoOperador, { type DatosOperador } from "@/components/PagoOperador";
+import ReportesPorAprobar from "@/components/ReportesPorAprobar";
 import { fmtMonto, fmtNum, hoyRD } from "@/lib/machines";
 import { fmtFecha } from "@/lib/conduces";
 import {
@@ -12,8 +13,10 @@ import {
   aDescuentoRow,
   aPagoRow,
   aPerfilPago,
+  aReporteDiaRow,
   calcularDias,
   fmtCorta,
+  mapaAjustes,
   quincenaDe,
   redondear2,
   resumenPendiente,
@@ -24,6 +27,7 @@ import {
   type DeudaRow,
   type PagoRow,
   type PerfilPago,
+  type ReporteDiaRow,
 } from "@/lib/pagos";
 
 type ConduceFila = { creado_por: string | null; fecha: string; horas_cobrables: number; estado: string };
@@ -102,6 +106,7 @@ export default function PagosPage() {
   const [conduces, setConduces] = useState<ConduceFila[]>([]);
   const [feriados, setFeriados] = useState<Feriado[]>([]);
   const [ajustes, setAjustes] = useState<AjusteRow[]>([]);
+  const [reportes, setReportes] = useState<ReporteDiaRow[]>([]);
   const [deudas, setDeudas] = useState<DeudaRow[]>([]);
   const [descuentos, setDescuentos] = useState<DescuentoRow[]>([]);
   const [pagos, setPagos] = useState<PagoRow[]>([]);
@@ -113,21 +118,22 @@ export default function PagosPage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [p, c, f, a, d, ds, pg, mq] = await Promise.all([
+    const [p, c, f, a, rd, d, ds, pg, mq] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario")
+        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, horas_alojamiento, horas_sin_conduce")
         .eq("rol", "operador")
         .order("nombre"),
       supabase.from("conduces").select("creado_por, fecha, horas_cobrables, estado").in("estado", ["Aprobado", "Pendiente"]),
       supabase.from("feriados").select("fecha, nombre").order("fecha"),
       supabase.from("dias_operador").select("*"),
+      supabase.from("reportes_dia").select("*").order("fecha"),
       supabase.from("deudas").select("*").order("fecha"),
       supabase.from("descuentos_deuda").select("*"),
       supabase.from("pagos_operador").select("*"),
       supabase.from("machines").select("dueno_user_id").not("dueno_user_id", "is", null),
     ]);
-    const fallo = p.error ?? c.error ?? f.error ?? a.error ?? d.error ?? ds.error ?? pg.error ?? mq.error;
+    const fallo = p.error ?? c.error ?? f.error ?? a.error ?? rd.error ?? d.error ?? ds.error ?? pg.error ?? mq.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -137,6 +143,7 @@ export default function PagosPage() {
       );
       setFeriados((f.data ?? []) as Feriado[]);
       setAjustes((a.data ?? []).map(aAjusteRow));
+      setReportes((rd.data ?? []).map(aReporteDiaRow));
       setDeudas((d.data ?? []).map(aDeudaRow));
       setDescuentos((ds.data ?? []).map(aDescuentoRow));
       setPagos((pg.data ?? []).map(aPagoRow));
@@ -163,19 +170,19 @@ export default function PagosPage() {
         .map((c) => ({ fecha: c.fecha, horas: c.horas_cobrables, aprobado: c.estado === "Aprobado" })),
       feriados: feriadosMapa,
       ajustes: ajustes.filter((x) => x.user_id === perfil.user_id),
+      reportes: reportes.filter((x) => x.user_id === perfil.user_id),
       deudas: deudas.filter((x) => x.user_id === perfil.user_id),
       descuentos: descuentos.filter((x) => x.user_id === perfil.user_id),
       pagos: pagos.filter((x) => x.user_id === perfil.user_id),
     }),
-    [conduces, feriadosMapa, ajustes, deudas, descuentos, pagos]
+    [conduces, feriadosMapa, ajustes, reportes, deudas, descuentos, pagos]
   );
 
   const hoy = hoyRD();
   const actual = quincenaDe(hoy);
   const perfilElegido = perfiles.find((p) => p.user_id === elegido) ?? null;
   const cobranPorHoras = perfiles.filter((p) => !duenos.includes(p.user_id));
-  const ajustesDe = (d: DatosOperador) =>
-    Object.fromEntries(d.ajustes.map((a) => [a.fecha, { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }]));
+  const ajustesDe = (d: DatosOperador) => mapaAjustes(d.ajustes, d.reportes);
   const pendienteDe = (p: PerfilPago) => {
     const d = datosDe(p);
     return resumenPendiente({
@@ -208,6 +215,8 @@ export default function PagosPage() {
           {cargando && <div className="empty">Cargando...</div>}
           {!cargando && !error && perfiles.length === 0 && <div className="empty">Todavía no hay operadores.</div>}
 
+          {!cargando && <ReportesPorAprobar reportes={reportes} perfiles={perfiles} onChanged={cargar} />}
+
           {!cargando && cobranPorHoras.length > 0 && (
             <div className="resumen" style={{ marginBottom: 12 }}>
               <div className="hint" style={{ marginTop: 0 }}>Total que debes pagar a los operadores, hasta hoy</div>
@@ -228,9 +237,8 @@ export default function PagosPage() {
               hoy,
               conduces: d.conduces,
               feriados: feriadosMapa,
-              ajustes: Object.fromEntries(
-                d.ajustes.map((a) => [a.fecha, { horas: a.horas, motivo: a.motivo, fueAlCampo: a.fue_al_campo }])
-              ),
+              ajustes: ajustesDe(d),
+              horasSinConduce: p.horas_sin_conduce,
             });
             const tot = totalizar(dias, p.tarifa_hora);
             const debe = redondear2(d.deudas.reduce((a, x) => a + saldoDeuda(x, d.descuentos), 0));
