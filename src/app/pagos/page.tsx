@@ -118,13 +118,15 @@ export default function PagosPage() {
   const [elegido, setElegido] = useState<string | null>(null);
   // Operadores que son dueños de la máquina que operan: cobran en Corte, no por horas.
   const [duenos, setDuenos] = useState<string[]>([]);
+  // Operadores que paga el dueño de la máquina (subcontratada): FIPEC no les paga, no salen aquí.
+  const [pagadosPorDueno, setPagadosPorDueno] = useState<string[]>([]);
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
     const [p, c, f, a, rd, tr, d, ds, pg, mq] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, horas_alojamiento, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
+        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, horas_alojamiento, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre, pagado_por_dueno")
         .eq("rol", "operador")
         .order("nombre"),
       supabase.from("conduces").select("creado_por, fecha, horas_cobrables, estado").in("estado", ["Aprobado", "Pendiente"]),
@@ -141,7 +143,8 @@ export default function PagosPage() {
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
-      setPerfiles((p.data ?? []).map(aPerfilPago));
+      setPerfiles((p.data ?? []).filter((x) => !x.pagado_por_dueno).map(aPerfilPago));
+      setPagadosPorDueno((p.data ?? []).filter((x) => x.pagado_por_dueno).map((x) => String(x.nombre || "Un operador")));
       setConduces(
         ((c.data ?? []) as ConduceFila[]).map((x) => ({ ...x, horas_cobrables: Number(x.horas_cobrables) }))
       );
@@ -295,6 +298,12 @@ export default function PagosPage() {
                 {p.nombre || "Un operador"} es dueño de la máquina que opera: lo suyo se ve en Corte (Pago a dueños), no aquí.
               </div>
             ))}
+
+          {pagadosPorDueno.map((n) => (
+            <div className="hint" key={n} style={{ marginTop: 8 }}>
+              {n} lo paga el dueño de la máquina: no le pagas tú, por eso no sale aquí.
+            </div>
+          ))}
 
           <Feriados feriados={feriados} onChanged={cargar} />
         </>

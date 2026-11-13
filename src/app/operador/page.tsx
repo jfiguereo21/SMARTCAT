@@ -21,6 +21,8 @@ export default function OperadorPage() {
   const [esDueno, setEsDueno] = useState<boolean | undefined>(undefined);
   const [nombre, setNombre] = useState("");
   const [rol, setRol] = useState("");
+  // true = lo paga el dueño de la máquina: no se le muestra "mi pago"
+  const [pagadoPorDueno, setPagadoPorDueno] = useState(false);
   const [maquinas, setMaquinas] = useState<MaquinaOperador[]>([]);
   const [conduces, setConduces] = useState<Conduce[]>([]);
   const [cargas, setCargas] = useState<FuelLog[]>([]);
@@ -44,7 +46,7 @@ export default function OperadorPage() {
     if (!u.user) return;
     setUid(u.user.id);
     const [p, m, c, f, r, rd] = await Promise.all([
-      supabase.from("perfiles").select("nombre, rol").eq("user_id", u.user.id).maybeSingle(),
+      supabase.from("perfiles").select("nombre, rol, pagado_por_dueno").eq("user_id", u.user.id).maybeSingle(),
       supabase.from("operador_maquinas").select("machine_id, maquina_nombre").eq("user_id", u.user.id),
       supabase
         .from("conduces")
@@ -71,6 +73,7 @@ export default function OperadorPage() {
       setError("");
       setNombre(p.data?.nombre ?? "");
       setRol(p.data?.rol ?? "");
+      setPagadoPorDueno(Boolean(p.data?.pagado_por_dueno));
       setMaquinas((m.data ?? []) as MaquinaOperador[]);
       setConduces(((c.data ?? []) as Conduce[]).map((x) => ({ ...x, horas_cobrables: Number(x.horas_cobrables) })));
       setCargas(((f.data ?? []) as FuelLog[]).map((x) => ({ ...x, galones: Number(x.galones) })));
@@ -124,8 +127,8 @@ export default function OperadorPage() {
         <div className="empty">Esta pantalla es para los operadores. Tú trabajas desde el panel.</div>
       ) : (
         <>
-          {rol === "operador" && <MiPagoDueno onEsDueno={setEsDueno} />}
-          {rol === "operador" && uid && esDueno === false && <MiPago uid={uid} conduces={conduces} recarga={recarga} />}
+          {rol === "operador" && !pagadoPorDueno && <MiPagoDueno onEsDueno={setEsDueno} />}
+          {rol === "operador" && !pagadoPorDueno && uid && esDueno === false && <MiPago uid={uid} conduces={conduces} recarga={recarga} />}
 
           <div className="tabs" style={{ marginBottom: 12 }}>
             <button className={vista === "horas" ? "tab on" : "tab"} onClick={() => setVista("horas")}>

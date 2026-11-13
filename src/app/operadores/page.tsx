@@ -40,6 +40,7 @@ type Perfil = {
   horas_alojamiento: number;
   horas_sin_conduce: number;
   dieta_siempre: boolean;
+  pagado_por_dueno: boolean;
 };
 type Asignacion = { user_id: string; machine_id: string };
 
@@ -68,6 +69,7 @@ function EditorOperador({
   const [hAloja, setHAloja] = useState(String(perfil.horas_alojamiento ?? 4));
   const [hSinConduce, setHSinConduce] = useState(String(perfil.horas_sin_conduce ?? 0));
   const [dietaSiempre, setDietaSiempre] = useState(perfil.dieta_siempre ?? false);
+  const [pagadoPorDueno, setPagadoPorDueno] = useState(perfil.pagado_por_dueno ?? false);
   const [elegidas, setElegidas] = useState<string[]>(asignadas);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -109,6 +111,7 @@ function EditorOperador({
         horas_alojamiento: nAloja,
         horas_sin_conduce: nSin,
         dieta_siempre: dietaSiempre,
+        pagado_por_dueno: pagadoPorDueno,
       })
       .eq("user_id", perfil.user_id);
     if (e1) {
@@ -148,6 +151,19 @@ function EditorOperador({
           <input id="op-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} />
         </div>
 
+        <label className="check">
+          <input type="checkbox" checked={pagadoPorDueno} onChange={(e) => setPagadoPorDueno(e.target.checked)} />
+          Este operador lo paga el dueño de la máquina (yo no le pago)
+        </label>
+        {pagadoPorDueno && (
+          <div className="hint" style={{ marginBottom: 8 }}>
+            No sale en Pagos ni le aparece "mi pago" en su celular. Solo sube conduces, combustible y reportes; las horas
+            de la máquina se cobran al cliente y se le pagan al dueño en Corte.
+          </div>
+        )}
+
+        {!pagadoPorDueno && (
+        <>
         <div className="resumen">
           <b>Lo que cobra</b>
           <div className="grid2" style={{ marginTop: 8 }}>
@@ -215,6 +231,8 @@ function EditorOperador({
         </div>
 
         <TratosOperador perfil={aPerfilPago(perfil as unknown as Record<string, unknown>)} />
+        </>
+        )}
 
         <div className="field">
           <label>Máquinas que puede reportar</label>
@@ -269,7 +287,7 @@ export default function OperadoresPage() {
     const [p, a, m, c, f, aj, rd, tr, de, ds, pg] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, minimo_horas_dia, minimo_horas_sabado, horas_alojamiento, horas_sin_conduce, dieta_siempre")
+        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, minimo_horas_dia, minimo_horas_sabado, horas_alojamiento, horas_sin_conduce, dieta_siempre, pagado_por_dueno")
         .order("nombre"),
       supabase.from("operador_maquinas").select("user_id, machine_id"),
       supabase.from("machines").select("*").order("nombre"),
@@ -299,6 +317,7 @@ export default function OperadoresPage() {
           horas_alojamiento: Number(x.horas_alojamiento ?? 4),
           horas_sin_conduce: Number(x.horas_sin_conduce ?? 0),
           dieta_siempre: Boolean(x.dieta_siempre),
+          pagado_por_dueno: Boolean(x.pagado_por_dueno),
         }))
       );
       const fer: Record<string, string> = {};
@@ -380,7 +399,7 @@ export default function OperadoresPage() {
         <div className="empty">Todavía no hay operadores.</div>
       )}
 
-      {operadores.filter((o) => !esDueno(o.user_id)).map((o) => {
+      {operadores.filter((o) => !esDueno(o.user_id) && !o.pagado_por_dueno).map((o) => {
         const suyas = asignaciones.filter((a) => a.user_id === o.user_id).map((a) => a.machine_id);
         const nombres = suyas.map((id) => maquinas.find((m) => m.id === id)?.nombre).filter(Boolean).join(", ");
         const h = horasDe.get(o.user_id);
@@ -417,6 +436,34 @@ export default function OperadoresPage() {
         horas reales de la máquina que se cobran al cliente, y por eso son menos. El detalle día por día y el total a
         pagarle están en <Link href="/pagos" style={{ textDecoration: "underline" }}>Pagos</Link>.
       </div>
+
+      {operadores.filter((o) => o.pagado_por_dueno && !esDueno(o.user_id)).map((o) => {
+        const h = horasDe.get(o.user_id);
+        const nombres = asignaciones
+          .filter((a) => a.user_id === o.user_id)
+          .map((a) => maquinas.find((m) => m.id === a.machine_id)?.nombre)
+          .filter(Boolean)
+          .join(", ");
+        return (
+          <button key={o.user_id} className="card" onClick={() => setEditando(o)}>
+            <div className="row">
+              <div>
+                <h2>{o.nombre || "Sin nombre"}</h2>
+                <span className="pill obra">Lo paga el dueño de la máquina</span>
+              </div>
+              <div className="horas">
+                {fmtNum(h?.aprobadas ?? 0, 2)}
+                <small> h de la máquina</small>
+              </div>
+            </div>
+            <div className="line">{nombres || "Sin máquinas asignadas"}</div>
+            <div className="line">
+              Tú no le pagas: sube los conduces de la máquina y el dueño le paga. Las horas se cobran al cliente y se le
+              pagan al dueño en Corte, en "Pago a dueños".
+            </div>
+          </button>
+        );
+      })}
 
       {operadores.filter((o) => esDueno(o.user_id)).map((o) => {
         const h = horasDe.get(o.user_id);
