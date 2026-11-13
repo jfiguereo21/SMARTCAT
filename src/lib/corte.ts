@@ -6,7 +6,13 @@ import { acuerdoVigente, type Acuerdo, type Machine, type Moneda } from "./machi
 import { corteDe } from "./conduces";
 import { descuentoCliente, redondear2, type PreciosCorte } from "./combustible";
 
-export type ConduceCorte = { machine_id: string; fecha: string; horas_cobrables: number; estado: string };
+export type ConduceCorte = {
+  machine_id: string;
+  fecha: string;
+  horas_cobrables: number;
+  estado: string;
+  parte_id?: string | null; // si está en una piscina de un trabajo a precio cerrado, no se cobra por hora
+};
 export type CargaCorte = {
   machine_id: string;
   fecha: string;

@@ -27,6 +27,8 @@ export type Conduce = {
   horometro: number | null; // lo que marcó el horómetro al terminar el día
   foto_horometro_path: string | null;
   notas: string | null;
+  parte_id?: string | null; // piscina (o parte) de un trabajo a precio cerrado
+  parte_terminada?: boolean; // el operador dijo que terminó esa piscina
   estado: EstadoConduce;
   creado_por: string | null;
   motivo_rechazo: string | null;

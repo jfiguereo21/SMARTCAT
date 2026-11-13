@@ -5,10 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
 import { acuerdoVigente, fmtMonto, fmtNum, hoyRD, type Acuerdo, type Machine } from "@/lib/machines";
-import { corteDe } from "@/lib/conduces";
+import { corteDe, fmtFecha } from "@/lib/conduces";
 import type { PreciosCorte } from "@/lib/combustible";
 import { armarCorte, pagoDuenos, type CargaCorte, type ConduceCorte } from "@/lib/corte";
 import { construirExcelCorte, type DetalleDia } from "@/lib/corteExcel";
+import { aParte, aTrabajo, type Parte, type Trabajo } from "@/lib/trabajos";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -17,6 +18,8 @@ export default function CortePage() {
   const [conduces, setConduces] = useState<ConduceCorte[]>([]);
   const [cargas, setCargas] = useState<CargaCorte[]>([]);
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
+  const [trabajos, setTrabajos] = useState<Trabajo[]>([]);
+  const [partes, setPartes] = useState<Parte[]>([]);
   const [precios, setPrecios] = useState<PreciosCorte[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -25,14 +28,16 @@ export default function CortePage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [m, c, f, a, p] = await Promise.all([
+    const [m, c, f, a, p, tj, pt] = await Promise.all([
       supabase.from("machines").select("*").order("nombre"),
-      supabase.from("conduces").select("machine_id, fecha, horas_cobrables, estado").neq("estado", "Rechazado"),
+      supabase.from("conduces").select("machine_id, fecha, horas_cobrables, estado, parte_id").neq("estado", "Rechazado"),
       supabase.from("fuel_logs").select("machine_id, fecha, galones, origen, estado, monto, moneda"),
       supabase.from("acuerdos").select("*, machines(nombre), clients(nombre)"),
       supabase.from("corte_precios").select("*"),
+      supabase.from("trabajos").select("*"),
+      supabase.from("trabajo_partes").select("*").order("orden"),
     ]);
-    const fallo = m.error ?? c.error ?? f.error ?? a.error ?? p.error;
+    const fallo = m.error ?? c.error ?? f.error ?? a.error ?? p.error ?? tj.error ?? pt.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -46,6 +51,8 @@ export default function CortePage() {
         }))
       );
       setAcuerdos(((a.data ?? []) as Acuerdo[]).map((x) => ({ ...x, tarifa: Number(x.tarifa) })));
+      setTrabajos((tj.data ?? []).map(aTrabajo));
+      setPartes((pt.data ?? []).map(aParte));
       setPrecios(
         ((p.data ?? []) as PreciosCorte[]).map((x) => ({
           corte: x.corte,
@@ -75,21 +82,28 @@ export default function CortePage() {
   const clave = claveSel ?? corteDe(hoyRD()).clave;
   const etiqueta = cortes.find((c) => c.clave === clave)?.etiqueta ?? corteDe(hoyRD()).etiqueta;
   const precio = precios.find((p) => p.corte === clave) ?? null;
+  // Las horas que están en una piscina de un trabajo a precio cerrado no se cobran por hora.
+  const conducesPorHora = useMemo(() => conduces.filter((c) => !c.parte_id), [conduces]);
   const corte = useMemo(
-    () => armarCorte(clave, maquinas, conduces, cargas, acuerdos, precio),
-    [clave, maquinas, conduces, cargas, acuerdos, precio]
+    () => armarCorte(clave, maquinas, conducesPorHora, cargas, acuerdos, precio),
+    [clave, maquinas, conducesPorHora, cargas, acuerdos, precio]
+  );
+  // Piscinas terminadas dentro de este corte: eso es lo que se cobra ahora.
+  const terminadasCorte = useMemo(
+    () => partes.filter((p) => p.terminada_en && corteDe(p.terminada_en).clave === clave),
+    [partes, clave]
   );
   const duenos = useMemo(
     () => pagoDuenos(clave, maquinas, conduces, cargas, precio),
     [clave, maquinas, conduces, cargas, precio]
   );
-  const hayDatos = corte.grupos.length > 0 || corte.horasSinAcuerdo.length > 0;
+  const hayDatos = corte.grupos.length > 0 || corte.horasSinAcuerdo.length > 0 || terminadasCorte.length > 0;
 
   async function descargar() {
     setBajando(true);
     try {
       const detalle: DetalleDia[] = [];
-      for (const c of conduces
+      for (const c of conducesPorHora
         .filter((x) => x.estado === "Aprobado" && corteDe(x.fecha).clave === clave)
         .sort((a, b) => (a.fecha < b.fecha ? -1 : 1))) {
         const a = acuerdoVigente(acuerdos, c.machine_id, c.fecha);
@@ -202,6 +216,33 @@ export default function CortePage() {
             ))}
           </div>
         ))
+      )}
+
+      {!cargando && terminadasCorte.length > 0 && (
+        <div className="resumen">
+          <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Trabajos a precio cerrado</h2>
+          {trabajos
+            .filter((t) => terminadasCorte.some((p) => p.trabajo_id === t.id))
+            .map((t) => {
+              const ps = terminadasCorte.filter((p) => p.trabajo_id === t.id);
+              return (
+                <div key={t.id} style={{ marginBottom: 12 }}>
+                  <b>{t.nombre}</b>
+                  {ps.map((p) => (
+                    <div className="line" key={p.id}>
+                      {p.nombre} · terminada el {fmtFecha(p.terminada_en!)} · {fmtMonto(p.precio, "DOP")}
+                    </div>
+                  ))}
+                  <div className="total-h" style={{ fontSize: 20 }}>
+                    Total a cobrar: {fmtMonto(ps.reduce((a, p) => a + p.precio, 0), "DOP")}
+                  </div>
+                </div>
+              );
+            })}
+          <div className="hint">
+            Estas horas no se cobran por hora. La ganancia de cada piscina está en <Link href="/trabajos">Trabajos</Link>.
+          </div>
+        </div>
       )}
 
       {!cargando && duenos.length > 0 && (

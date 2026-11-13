@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { aNumero, fmtNum, hoyRD } from "@/lib/machines";
 import {
@@ -28,6 +28,8 @@ type Props = {
 
 const TRAMO_VACIO: Tramo = { entrada: "", salida: "" };
 
+type ParteAbierta = { parte_id: string; parte: string; trabajo: string; machine_id: string };
+
 export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved }: Props) {
   const nuevo = conduce === null;
   // Ya enviado (aprobado o esperando aprobación): el operador no puede cambiar nada, solo subir el conduce firmado.
@@ -51,6 +53,10 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
   const [horometro, setHorometro] = useState(conduce?.horometro != null ? String(conduce.horometro) : "");
   const [fotoHoro, setFotoHoro] = useState<File | null>(null);
 
+  const [partesAbiertas, setPartesAbiertas] = useState<ParteAbierta[]>([]);
+  const [parteId, setParteId] = useState(conduce?.parte_id ?? "");
+  const [terminada, setTerminada] = useState(conduce?.parte_terminada ?? false);
+
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [borrarListo, setBorrarListo] = useState(false);
@@ -58,6 +64,15 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
   const urlSinFirma = useFotoUrl(conduce?.foto_path);
   const urlFirmada = useFotoUrl(conduce?.foto_firmada_path);
   const urlHoro = useFotoUrl(conduce?.foto_horometro_path);
+
+  // Piscinas (o partes) abiertas de trabajos a precio cerrado en esta máquina; el operador no ve el precio.
+  useEffect(() => {
+    createClient()
+      .rpc("partes_abiertas_operador")
+      .then(({ data }) => setPartesAbiertas((data ?? []) as ParteAbierta[]));
+  }, []);
+  const partesMaquina = partesAbiertas.filter((p) => p.machine_id === machineId);
+  const parteValida = parteId !== "" && partesMaquina.some((p) => p.parte_id === parteId) ? parteId : "";
 
   const calculadas = sumaTramos(tramos);
   const escritasNum = aHoras(escritas);
@@ -126,6 +141,8 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
           horometro: aNumero(horometro),
           foto_horometro_path: horoPath,
           notas: notas.trim() || null,
+          parte_id: parteValida || null,
+          parte_terminada: parteValida ? terminada : false,
         };
         ({ error: err } = nuevo
           ? await supabase.from("conduces").insert({ ...datos, creado_por: uid })
@@ -299,6 +316,32 @@ export default function OperadorForm({ conduce, uid, maquinas, onClose, onSaved 
               <label htmlFor="o-obra">Obra o lugar</label>
               <input id="o-obra" value={obra} onChange={(e) => setObra(e.target.value)} />
             </div>
+            {partesMaquina.length > 0 && (
+              <div className="field">
+                <label htmlFor="o-parte">¿En cuál piscina trabajaste hoy?</label>
+                <select
+                  id="o-parte"
+                  value={parteValida}
+                  onChange={(e) => {
+                    setParteId(e.target.value);
+                    if (e.target.value === "") setTerminada(false);
+                  }}
+                >
+                  <option value="">En ninguna</option>
+                  {partesMaquina.map((p) => (
+                    <option key={p.parte_id} value={p.parte_id}>
+                      {p.parte} ({p.trabajo})
+                    </option>
+                  ))}
+                </select>
+                {parteValida && (
+                  <label className="check" style={{ marginTop: 8 }}>
+                    <input type="checkbox" checked={terminada} onChange={(e) => setTerminada(e.target.checked)} />
+                    <span>Hoy terminé esta piscina</span>
+                  </label>
+                )}
+              </div>
+            )}
             <div className="field">
               <label htmlFor="o-impl">¿Con qué trabajaste?</label>
               <select id="o-impl" value={implemento} onChange={(e) => setImplemento(e.target.value as Implemento | "")}>
