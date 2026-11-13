@@ -72,7 +72,7 @@ export default function ReporteDiaForm({
           <input id="rd-nota" value={nota} onChange={(e) => setNota(e.target.value)} />
         </div>
 
-        <div className="hint">El administrador lo revisa y aprueba, y él fija las horas.</div>
+        <div className="hint">El administrador lo revisa y aprueba, y él fija las horas. Si no reportas nada, ese día no se te cuenta.</div>
 
         <div className="actions">
           <button type="submit" className="btn primary grow" disabled={guardando}>

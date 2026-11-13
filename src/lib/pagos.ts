@@ -2,13 +2,13 @@
 //
 // Día normal (lunes a sábado) con conduce: mínimo 8 horas; si trabajó más, se pagan horas completas hacia arriba,
 // con 15 minutos de margen: 8 h 15 min = 8 h; 8 h 16 min = 9 h; 9 h 30 min = 10 h.
-// Día normal sin conduce: 4 horas.
+// Día normal sin conduce ni reporte: no se paga (el operador reporta alojamiento o reparación).
 // Domingo o festivo: no se paga, salvo que pidan la máquina; entonces se paga el doble de las horas del conduce
 // (sin mínimo y sin redondear a horas completas).
 // El administrador puede reemplazar las horas de cualquier día (falta, taller, vacaciones...).
 
 export const MIN_HORAS_DIA = 8;
-export const HORAS_SIN_CONDUCE = 4;
+export const HORAS_SIN_CONDUCE = 0; // sin conduce ni reporte no se paga: el operador tiene que reportar el día
 export const FACTOR_DOBLE = 2;
 
 export const redondear2 = (n: number) => Math.round(n * 100) / 100;
@@ -128,7 +128,7 @@ export function ultimoLunes(hoy: string): string {
 
 export type TipoDia =
   | "normal" // lunes a sábado con conduce
-  | "sin_conduce" // lunes a sábado sin conduce: 4 horas
+  | "sin_conduce" // lunes a sábado sin conduce ni reporte: no se paga
   | "doble" // domingo o festivo con conduce: el doble
   | "no_paga" // domingo o festivo sin conduce
   | "ajuste" // el administrador cambió las horas
@@ -156,7 +156,7 @@ export type EntradaDias = {
   conduces: ConduceDia[];
   feriados: Record<string, string>; // fecha -> nombre
   ajustes: Record<string, AjusteDia>; // fecha -> ajuste
-  horasSinConduce?: number; // horas de un día laboral sin conduce (por defecto 4)
+  horasSinConduce?: number; // horas de un día laboral sin conduce (por defecto 0)
 };
 
 export function calcularDias(e: EntradaDias): DiaPago[] {
@@ -259,7 +259,7 @@ export type PerfilPago = {
   dieta_diaria: number;
   combustible_diario: number;
   horas_alojamiento: number; // horas que se pagan el día que reporta "estuve en el alojamiento"
-  horas_sin_conduce: number; // horas de un día de lunes a sábado sin conduce ni reporte (4 normal; 0 si no reporta no se paga)
+  horas_sin_conduce: number; // horas de un día de lunes a sábado sin conduce ni reporte (0: si no reporta, no se paga)
 };
 
 export type AjusteRow = { user_id: string; fecha: string; horas: number; motivo: string | null; fue_al_campo: boolean };
