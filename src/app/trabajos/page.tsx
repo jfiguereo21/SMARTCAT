@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
+import ClienteSelect from "@/components/ClienteSelect";
 import { fmtMonto, fmtNum, hoyRD } from "@/lib/machines";
 import { fmtFecha } from "@/lib/conduces";
 import { aAjusteRow, aPerfilPago, aReporteDiaRow, aTratoRow, redondear2, type PerfilPago } from "@/lib/pagos";
@@ -324,14 +325,7 @@ function NuevoTrabajo({
         </div>
         <div className="field">
           <label htmlFor="t-cli">Cliente (opcional)</label>
-          <select id="t-cli" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-            <option value="">Sin cliente</option>
-            {clientes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </select>
+          <ClienteSelect id="t-cli" clientes={clientes} value={clienteId} onChange={setClienteId} vacio="Sin cliente" />
         </div>
         <div className="field">
           <label htmlFor="t-obra">Lugar (opcional)</label>

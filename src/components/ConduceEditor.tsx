@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import ClienteSelect from "@/components/ClienteSelect";
 import { aNumero, fmtNum, hoyRD, type Machine } from "@/lib/machines";
 import { avisosConduce } from "@/lib/horometro";
 import { useFotoUrl } from "@/lib/fotos";
@@ -268,14 +269,7 @@ export default function ConduceEditor({ conduce, maquinas, clientes, todos, onCl
 
         <div className="field">
           <label htmlFor="c-cliente">Cliente</label>
-          <select id="c-cliente" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Sin cliente todavía</option>
-            {clientes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </select>
+          <ClienteSelect id="c-cliente" clientes={clientes} value={clientId} onChange={setClientId} />
         </div>
 
         <div className="grid2">

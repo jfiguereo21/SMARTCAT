@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import ClienteSelect from "@/components/ClienteSelect";
 import { aNumero, fmtMonto, hoyRD, type Acuerdo, type Machine, type Moneda } from "@/lib/machines";
 import { fmtFecha, type Cliente } from "@/lib/conduces";
 
@@ -153,14 +154,7 @@ export default function AcuerdoEditor({ acuerdo, maquinas, clientes, acuerdos, o
 
         <div className="field">
           <label htmlFor="a-cli">Cliente</label>
-          <select id="a-cli" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Sin cliente todavía</option>
-            {clientes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </select>
+          <ClienteSelect id="a-cli" clientes={clientes} value={clientId} onChange={setClientId} />
         </div>
 
         <div className="field">
