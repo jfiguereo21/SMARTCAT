@@ -15,6 +15,11 @@ type Perfil = {
   paga_desde: string | null;
   dieta_diaria: number;
   combustible_diario: number;
+  minimo_horas_dia: number;
+  minimo_horas_sabado: number;
+  horas_alojamiento: number;
+  horas_sin_conduce: number;
+  dieta_siempre: boolean;
 };
 type Asignacion = { user_id: string; machine_id: string };
 
@@ -37,6 +42,11 @@ function EditorOperador({
   const [pagaDesde, setPagaDesde] = useState(perfil.paga_desde ?? "");
   const [dieta, setDieta] = useState(String(perfil.dieta_diaria ?? 0));
   const [combustible, setCombustible] = useState(String(perfil.combustible_diario ?? 0));
+  const [minDia, setMinDia] = useState(String(perfil.minimo_horas_dia ?? 8));
+  const [minSab, setMinSab] = useState(String(perfil.minimo_horas_sabado ?? 8));
+  const [hAloja, setHAloja] = useState(String(perfil.horas_alojamiento ?? 4));
+  const [hSinConduce, setHSinConduce] = useState(String(perfil.horas_sin_conduce ?? 0));
+  const [dietaSiempre, setDietaSiempre] = useState(perfil.dieta_siempre ?? false);
   const [elegidas, setElegidas] = useState<string[]>(asignadas);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -55,6 +65,12 @@ function EditorOperador({
     if (t != null && t < 0) return setError("La tarifa por hora no puede ser negativa.");
     if (tarifa.trim() !== "" && t == null) return setError("La tarifa por hora tiene que ser un número, por ejemplo 350.");
     if (di == null || di < 0 || co == null || co < 0) return setError("La dieta y el combustible tienen que ser números (puede ser 0).");
+    const nMinDia = aNumero(minDia);
+    const nMinSab = aNumero(minSab);
+    const nAloja = aNumero(hAloja);
+    const nSin = aNumero(hSinConduce);
+    if ([nMinDia, nMinSab, nAloja, nSin].some((n) => n == null || n < 0))
+      return setError("Las horas del trato tienen que ser números (pueden ser 0).");
     setGuardando(true);
     const supabase = createClient();
     const { error: e1 } = await supabase
@@ -66,6 +82,11 @@ function EditorOperador({
         paga_desde: pagaDesde === "" ? null : pagaDesde,
         dieta_diaria: di,
         combustible_diario: co,
+        minimo_horas_dia: nMinDia,
+        minimo_horas_sabado: nMinSab,
+        horas_alojamiento: nAloja,
+        horas_sin_conduce: nSin,
+        dieta_siempre: dietaSiempre,
       })
       .eq("user_id", perfil.user_id);
     if (e1) {
@@ -132,6 +153,38 @@ function EditorOperador({
           </div>
         </div>
 
+        <div className="resumen">
+          <b>El trato con este operador</b>
+          <div className="grid2" style={{ marginTop: 8 }}>
+            <div className="field">
+              <label htmlFor="op-mindia">Mínimo de horas, lunes a viernes con conduce</label>
+              <input id="op-mindia" inputMode="decimal" value={minDia} onChange={(e) => setMinDia(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="op-minsab">Mínimo de horas del sábado con conduce</label>
+              <input id="op-minsab" inputMode="decimal" value={minSab} onChange={(e) => setMinSab(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid2">
+            <div className="field">
+              <label htmlFor="op-aloja">Horas del día "estuve en el alojamiento"</label>
+              <input id="op-aloja" inputMode="decimal" value={hAloja} onChange={(e) => setHAloja(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="op-sin">Horas del día sin conduce ni reporte</label>
+              <input id="op-sin" inputMode="decimal" value={hSinConduce} onChange={(e) => setHSinConduce(e.target.value)} />
+            </div>
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={dietaSiempre} onChange={(e) => setDietaSiempre(e.target.checked)} />
+            Cobra dieta y combustible todos los días de lunes a sábado, trabaje o no
+          </label>
+          <div className="hint">
+            Si trabaja más del mínimo, se le pagan las horas completas hacia arriba (con 15 minutos de margen). Domingos y
+            festivos: no se pagan, salvo que pidan la máquina; entonces es el doble de las horas.
+          </div>
+        </div>
+
         <div className="field">
           <label>Máquinas que puede reportar</label>
           {maquinas.map((m) => (
@@ -175,7 +228,7 @@ export default function OperadoresPage() {
     const [p, a, m, c] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario")
+        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, minimo_horas_dia, minimo_horas_sabado, horas_alojamiento, horas_sin_conduce, dieta_siempre")
         .order("nombre"),
       supabase.from("operador_maquinas").select("user_id, machine_id"),
       supabase.from("machines").select("*").order("nombre"),
@@ -191,6 +244,11 @@ export default function OperadoresPage() {
           tarifa_hora: x.tarifa_hora == null ? null : Number(x.tarifa_hora),
           dieta_diaria: Number(x.dieta_diaria ?? 0),
           combustible_diario: Number(x.combustible_diario ?? 0),
+          minimo_horas_dia: Number(x.minimo_horas_dia ?? 8),
+          minimo_horas_sabado: Number(x.minimo_horas_sabado ?? 8),
+          horas_alojamiento: Number(x.horas_alojamiento ?? 4),
+          horas_sin_conduce: Number(x.horas_sin_conduce ?? 0),
+          dieta_siempre: Boolean(x.dieta_siempre),
         }))
       );
       setAsignaciones((a.data ?? []) as Asignacion[]);

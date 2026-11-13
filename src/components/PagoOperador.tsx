@@ -235,9 +235,9 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         conduces: d.conduces,
         feriados: d.feriados,
         ajustes: ajustesMapa,
-        horasSinConduce: perfil.horas_sin_conduce,
+        trato: perfil,
       }),
-    [q, perfil.paga_desde, perfil.horas_sin_conduce, hoy, d.conduces, d.feriados, ajustesMapa]
+    [q, perfil.paga_desde, perfil, hoy, d.conduces, d.feriados, ajustesMapa]
   );
   const tot = totalizar(dias, perfil.tarifa_hora);
   const pago = d.pagos.find((p) => p.tipo === "quincena" && p.periodo_inicio === q.inicio && p.periodo_fin === q.fin);
@@ -526,7 +526,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
       conduces: d.conduces,
       feriados: d.feriados,
       ajustes: ajustesMapa,
-      horasSinConduce: perfil.horas_sin_conduce,
+      trato: perfil,
     });
     return { dias, total: totalCampo(dias, perfil.dieta_diaria, perfil.combustible_diario) };
   };

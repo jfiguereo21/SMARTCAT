@@ -44,7 +44,7 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
     Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, horas_sin_conduce")
+        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
         .eq("user_id", uid)
         .maybeSingle(),
       supabase.from("feriados").select("fecha, nombre"),

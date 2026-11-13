@@ -1,6 +1,6 @@
 // Reglas de pago a los operadores. Todo el dinero va en pesos (RD$).
 //
-// Día normal (lunes a sábado) con conduce: mínimo 8 horas; si trabajó más, se pagan horas completas hacia arriba,
+// Día normal (lunes a sábado) con conduce: mínimo 8 horas (cada operador puede tener otro mínimo, p. ej. sábado 4); si trabajó más, se pagan horas completas hacia arriba,
 // con 15 minutos de margen: 8 h 15 min = 8 h; 8 h 16 min = 9 h; 9 h 30 min = 10 h.
 // Día normal sin conduce ni reporte: no se paga (el operador reporta alojamiento o reparación).
 // Domingo o festivo: no se paga, salvo que pidan la máquina; entonces se paga el doble de las horas del conduce
@@ -17,12 +17,12 @@ export const MARGEN_REDONDEO_HORAS = 0.25; // 15 minutos
 
 // Horas que se pagan en un día normal con conduce: mínimo 8 y horas completas hacia arriba.
 // Hasta 15 minutos pasada la hora completa no cuentan; si pasa de 15 minutos, se paga la hora siguiente.
-export function horasPagablesDiaNormal(horas: number): number {
+export function horasPagablesDiaNormal(horas: number, minimo: number = MIN_HORAS_DIA): number {
   const r = redondear2(horas);
   const piso = Math.floor(r);
   const fraccion = redondear2(r - piso);
   const completas = fraccion <= MARGEN_REDONDEO_HORAS ? piso : piso + 1;
-  return Math.max(MIN_HORAS_DIA, completas);
+  return Math.max(minimo, completas);
 }
 
 // --- Fechas AAAA-MM-DD sin zonas horarias ---
@@ -148,6 +148,11 @@ export type DiaPago = {
 export type ConduceDia = { fecha: string; horas: number; aprobado: boolean };
 export type AjusteDia = { horas: number; motivo: string | null; fueAlCampo?: boolean; porAprobar?: boolean };
 
+// Lo que se pactó con cada operador (viene de su perfil).
+export type Trato = Partial<
+  Pick<PerfilPago, "horas_sin_conduce" | "minimo_horas_dia" | "minimo_horas_sabado" | "dieta_siempre">
+>;
+
 export type EntradaDias = {
   inicio: string;
   fin: string;
@@ -156,13 +161,15 @@ export type EntradaDias = {
   conduces: ConduceDia[];
   feriados: Record<string, string>; // fecha -> nombre
   ajustes: Record<string, AjusteDia>; // fecha -> ajuste
-  horasSinConduce?: number; // horas de un día laboral sin conduce (por defecto 0)
+  trato?: Trato;
 };
 
 export function calcularDias(e: EntradaDias): DiaPago[] {
   const desde = e.pagaDesde && e.pagaDesde > e.inicio ? e.pagaDesde : e.inicio;
   const hasta = e.fin < e.hoy ? e.fin : e.hoy;
   const dias: DiaPago[] = [];
+  const t = e.trato ?? {};
+  const noLaboralDia = (f: string, fer: string | null) => diaSemana(f) === 0 || fer != null;
   if (!e.pagaDesde) return dias; // sin fecha de inicio no se calcula nada
   for (const fecha of listaDias(desde, hasta)) {
     const aprobadas = redondear2(e.conduces.filter((c) => c.fecha === fecha && c.aprobado).reduce((a, c) => a + c.horas, 0));
@@ -173,7 +180,7 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
 
     if (ajuste?.porAprobar) {
       // Reporte del operador sin aprobar: no se cuenta todavía
-      dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: ajuste.motivo, fueAlCampo: false });
+      dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: ajuste.motivo, fueAlCampo: !!t.dieta_siempre && !noLaboralDia(fecha, feriado) });
       continue;
     }
     if (ajuste) {
@@ -191,15 +198,24 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
       dias.push(
         noLaboral
           ? { ...base, tipo: "doble", horasPagadas: redondear2(aprobadas * FACTOR_DOBLE), nota: null, fueAlCampo: true }
-          : { ...base, tipo: "normal", horasPagadas: horasPagablesDiaNormal(aprobadas), nota: null, fueAlCampo: true }
+          : {
+              ...base,
+              tipo: "normal",
+              horasPagadas: horasPagablesDiaNormal(
+                aprobadas,
+                diaSemana(fecha) === 6 ? t.minimo_horas_sabado ?? MIN_HORAS_DIA : t.minimo_horas_dia ?? MIN_HORAS_DIA
+              ),
+              nota: null,
+              fueAlCampo: true,
+            }
       );
     } else if (pendientes > 0) {
-      dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: null, fueAlCampo: false });
+      dias.push({ ...base, tipo: "pendiente", horasPagadas: 0, nota: null, fueAlCampo: !!t.dieta_siempre && !noLaboral });
     } else if (noLaboral) {
       dias.push({ ...base, tipo: "no_paga", horasPagadas: 0, nota: null, fueAlCampo: false });
     } else if (fecha < e.hoy) {
       // El día de hoy sin conduce todavía no cuenta: el operador reporta al final del día.
-      dias.push({ ...base, tipo: "sin_conduce", horasPagadas: e.horasSinConduce ?? HORAS_SIN_CONDUCE, nota: null, fueAlCampo: false });
+      dias.push({ ...base, tipo: "sin_conduce", horasPagadas: t.horas_sin_conduce ?? HORAS_SIN_CONDUCE, nota: null, fueAlCampo: !!t.dieta_siempre });
     }
   }
   return dias;
@@ -260,6 +276,9 @@ export type PerfilPago = {
   combustible_diario: number;
   horas_alojamiento: number; // horas que se pagan el día que reporta "estuve en el alojamiento"
   horas_sin_conduce: number; // horas de un día de lunes a sábado sin conduce ni reporte (0: si no reporta, no se paga)
+  minimo_horas_dia: number; // mínimo de horas de lunes a viernes con conduce
+  minimo_horas_sabado: number; // mínimo de horas del sábado con conduce
+  dieta_siempre: boolean; // cobra dieta y combustible todos los días laborales, trabaje o no
 };
 
 export type AjusteRow = { user_id: string; fecha: string; horas: number; motivo: string | null; fue_al_campo: boolean };
@@ -348,6 +367,9 @@ export const aPerfilPago = (x: Record<string, unknown>): PerfilPago => ({
   combustible_diario: Number(x.combustible_diario ?? 0),
   horas_alojamiento: Number(x.horas_alojamiento ?? 4),
   horas_sin_conduce: Number(x.horas_sin_conduce ?? HORAS_SIN_CONDUCE),
+  minimo_horas_dia: Number(x.minimo_horas_dia ?? MIN_HORAS_DIA),
+  minimo_horas_sabado: Number(x.minimo_horas_sabado ?? MIN_HORAS_DIA),
+  dieta_siempre: Boolean(x.dieta_siempre),
 });
 
 export const aPagoRow = (x: Record<string, unknown>): PagoRow => ({
@@ -428,7 +450,7 @@ export type ResumenPendiente = {
 };
 
 export function resumenPendiente(e: {
-  perfil: Pick<PerfilPago, "tarifa_hora" | "paga_desde" | "dieta_diaria" | "combustible_diario"> & Partial<Pick<PerfilPago, "horas_sin_conduce">>;
+  perfil: Pick<PerfilPago, "tarifa_hora" | "paga_desde" | "dieta_diaria" | "combustible_diario"> & Trato;
   hoy: string;
   conduces: ConduceDia[];
   feriados: Record<string, string>;
@@ -457,7 +479,7 @@ export function resumenPendiente(e: {
     conduces: e.conduces,
     feriados: e.feriados,
     ajustes: e.ajustes,
-    horasSinConduce: e.perfil.horas_sin_conduce,
+    trato: e.perfil,
   });
 
   // Quincenas sin pagar, de la más vieja a la más nueva
