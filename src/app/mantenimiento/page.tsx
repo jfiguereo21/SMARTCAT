@@ -4,16 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
 import FallaEditor from "@/components/FallaEditor";
+import ServiciosMaquinas from "@/components/ServiciosMaquinas";
 import { fmtFecha } from "@/lib/conduces";
 import type { ReporteFalla } from "@/lib/fallas";
 
-type Vista = "abiertas" | "resueltas";
+type Vista = "servicios" | "abiertas" | "resueltas";
 
 export default function MantenimientoPage() {
   const [reportes, setReportes] = useState<ReporteFalla[]>([]);
   const [maquinas, setMaquinas] = useState<Record<string, string>>({});
   const [operadores, setOperadores] = useState<Record<string, string>>({});
-  const [vista, setVista] = useState<Vista>("abiertas");
+  const [vista, setVista] = useState<Vista>("servicios");
   const [abierto, setAbierto] = useState<ReporteFalla | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -64,28 +65,33 @@ export default function MantenimientoPage() {
       </div>
 
       <div className="tabs" style={{ marginBottom: 12 }}>
+        <button className={vista === "servicios" ? "tab on" : "tab"} onClick={() => setVista("servicios")}>
+          Cada 250 horas
+        </button>
         <button className={vista === "abiertas" ? "tab on" : "tab"} onClick={() => setVista("abiertas")}>
-          Abiertas ({abiertas})
+          Fallas ({abiertas})
         </button>
         <button className={vista === "resueltas" ? "tab on" : "tab"} onClick={() => setVista("resueltas")}>
           Resueltas
         </button>
       </div>
 
-      {nuevas > 0 && vista === "abiertas" && (
+      {vista === "servicios" && <ServiciosMaquinas />}
+
+      {nuevas > 0 && vista !== "resueltas" && (
         <div className="alerta" style={{ marginBottom: 12 }}>
           {nuevas === 1 ? "Hay 1 falla nueva sin tomar." : `Hay ${nuevas} fallas nuevas sin tomar.`} Ábrela, mira las fotos y
           el video, y escribe a quién se la mandas.
         </div>
       )}
 
-      {error && <div className="error">{error}</div>}
-      {cargando && <div className="empty">Cargando...</div>}
-      {!cargando && !error && lista.length === 0 && (
+      {vista !== "servicios" && error && <div className="error">{error}</div>}
+      {vista !== "servicios" && cargando && <div className="empty">Cargando...</div>}
+      {vista !== "servicios" && !cargando && !error && lista.length === 0 && (
         <div className="empty">{vista === "abiertas" ? "No hay fallas abiertas." : "Todavía no hay fallas resueltas."}</div>
       )}
 
-      {lista.map((x) => (
+      {vista !== "servicios" && lista.map((x) => (
         <button key={x.id} className="card" onClick={() => setAbierto(x)}>
           <div className="row">
             <div>

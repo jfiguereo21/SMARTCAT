@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MachineEditor from "@/components/MachineEditor";
 import Nav from "@/components/Nav";
+import { aMantenimiento, estadoMantenimiento, type Mantenimiento } from "@/lib/mantenimiento";
 import {
   acuerdoVigente,
   fmtNum,
@@ -23,6 +24,7 @@ function clasePill(estado: Machine["estado"]) {
 export default function MaquinasPage() {
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
+  const [servicios, setServicios] = useState<Mantenimiento[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   // undefined = editor cerrado, null = máquina nueva, Machine = editando
@@ -30,15 +32,17 @@ export default function MaquinasPage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [m, a] = await Promise.all([
+    const [m, a, sv] = await Promise.all([
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("acuerdos").select("*, clients(nombre)").order("fecha_inicio", { ascending: false }),
+      supabase.from("mantenimientos").select("*"),
     ]);
     const fallo = m.error ?? a.error;
     if (fallo) setError(`No se pudieron cargar las máquinas: ${fallo.message}`);
     else {
       setError("");
       setMaquinas((m.data ?? []) as Machine[]);
+      setServicios((sv.data ?? []).map(aMantenimiento));
       setAcuerdos(
         ((a.data ?? []) as unknown as Acuerdo[]).map((x) => ({ ...x, tarifa: Number(x.tarifa) }))
       );
@@ -71,6 +75,7 @@ export default function MaquinasPage() {
         const detalle = [specs, m.anio ? String(m.anio) : null, m.serie].filter(Boolean).join(" · ");
         const acuerdo = acuerdoVigente(acuerdos, m.id, hoyRD());
         const margen = lineaMargen(m, acuerdo);
+        const mant = estadoMantenimiento(m.horometro, servicios.filter((x) => x.machine_id === m.id));
         return (
           <button key={m.id} className="card" onClick={() => setEditando(m)}>
             <div className="row">
@@ -93,6 +98,11 @@ export default function MaquinasPage() {
               {m.propiedad === "Subcontratada" && ` · Subcontratada${m.dueno ? `, de ${m.dueno}` : ""}`}
             </div>
             {margen && <div className="line">{margen}</div>}
+            {(mant.nivel === "vencido" || mant.nivel === "proximo" || mant.nivel === "sin_dato") && (
+              <div className={mant.nivel === "vencido" ? "alerta" : "aviso"}>
+                {mant.resumen} Míralo en Mantenimiento.
+              </div>
+            )}
             {m.horometro_fecha && (
               <div className="line">Horómetro del {m.horometro_fecha}</div>
             )}
