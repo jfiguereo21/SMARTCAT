@@ -124,7 +124,8 @@ textarea {
   cursor: pointer;
 }
 
-.card .row {
+.card .row,
+.resumen .row {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;

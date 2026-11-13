@@ -13,11 +13,18 @@ import {
   aPerfilPago,
   aReporteDiaRow,
   aTratoRow,
+  calcularDias,
+  explicarDia,
   fmtCorta,
   mapaAjustes,
+  nombreDia,
+  quincenaDe,
   redondear2,
   resumenPendiente,
   saldoDeuda,
+  totalizar,
+  ultimoLunes,
+  type DiaPago,
   type AjusteRow,
   type DescuentoRow,
   type DeudaRow,
@@ -40,6 +47,7 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
   const [descuentos, setDescuentos] = useState<DescuentoRow[]>([]);
   const [pagos, setPagos] = useState<PagoRow[]>([]);
   const [error, setError] = useState("");
+  const [verDetalle, setVerDetalle] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -83,6 +91,37 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
   );
   const ajustesMapa = useMemo(() => mapaAjustes(ajustes, reportes), [ajustes, reportes]);
 
+  // Día por día, agrupado por quincena (la más nueva primero)
+  const quincenas = useMemo(() => {
+    if (!perfil?.paga_desde) return [];
+    const dias = calcularDias({
+      inicio: perfil.paga_desde,
+      fin: hoy,
+      pagaDesde: perfil.paga_desde,
+      hoy,
+      conduces: conducesDia,
+      feriados,
+      ajustes: ajustesMapa,
+      trato: perfil,
+      tratos,
+    });
+    const grupos = new Map<string, DiaPago[]>();
+    for (const d of dias) {
+      const q = quincenaDe(d.fecha);
+      const k = `${q.inicio}|${q.fin}`;
+      grupos.set(k, [...(grupos.get(k) ?? []), d]);
+    }
+    return [...grupos.entries()]
+      .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+      .map(([k, ds]) => {
+        const [inicio, fin] = k.split("|");
+        const q = quincenaDe(inicio);
+        const t = totalizar(ds, perfil.tarifa_hora);
+        const pagada = pagos.some((p) => p.tipo === "quincena" && p.periodo_inicio === inicio && p.periodo_fin === fin);
+        return { inicio, fin, fechaPago: q.fechaPago, dias: [...ds].reverse(), horas: t.horas, bruto: t.bruto, pagada };
+      });
+  }, [perfil, hoy, conducesDia, feriados, ajustesMapa, tratos, pagos]);
+
   if (error) return <div className="error">{error}</div>;
   if (!perfil) return null;
 
@@ -118,11 +157,78 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
           <div className="total-h">{dinero(res.debe)}</div>
         </div>
         <div className="total">
-          <div className="total-n">Total a recibir</div>
-          <div className="total-h">{perfil.tarifa_hora != null ? dinero(res.total) : "—"}</div>
-          <div className="total-c">con dieta y combustible, menos deudas</div>
+          <div className="total-n">Pago de la quincena</div>
+          <div className="total-h">{perfil.tarifa_hora != null ? dinero(res.ganado - res.descuento) : "—"}</div>
+          <div className="total-c">
+            {res.proximoPago ? `se paga el ${fmtCorta(res.proximoPago)} · ` : ""}solo horas
+            {res.descuento > 0 ? `, menos ${dinero(res.descuento)} de deuda` : ""}
+          </div>
         </div>
       </div>
+      <button className="btn primary" style={{ width: "100%", marginBottom: 12 }} onClick={() => setVerDetalle((v) => !v)}>
+        {verDetalle ? "Cerrar el detalle" : "Ver día por día cómo se pagan mis horas"}
+      </button>
+      {verDetalle && (
+        <div className="resumen">
+          <b>Tus horas día por día</b>
+          <div className="line">
+            Aquí ves cada día, cuántas horas se te pagan y por qué. La dieta y el combustible no se mezclan con esto:
+            se pagan aparte, los lunes.
+          </div>
+          {quincenas.length === 0 && <div className="line">Todavía no hay días para mostrar.</div>}
+          {quincenas.map((q) => (
+            <div key={q.inicio} style={{ marginTop: 16 }}>
+              <div style={{ fontWeight: 700 }}>
+                Del {fmtCorta(q.inicio)} al {fmtCorta(q.fin)}
+              </div>
+              <div>
+                <span className={`pill ${q.pagada ? "disp" : "taller"}`}>
+                  {q.pagada ? "Ya pagada" : `Se paga el ${fmtCorta(q.fechaPago)}`}
+                </span>
+              </div>
+              <div className="line">
+                {fmtNum(q.horas, 2)} horas
+                {perfil.tarifa_hora != null || q.bruto > 0 ? ` = ${dinero(q.bruto)}` : ""}
+              </div>
+              {q.dias.map((d) => {
+                const e = explicarDia(d);
+                const tarifa = d.tarifa ?? perfil.tarifa_hora;
+                const semanaPagada = pagos.some((p) => p.tipo === "semanal" && p.periodo_inicio === ultimoLunes(d.fecha));
+                return (
+                  <div key={d.fecha} style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }}>
+                    <div className="row">
+                      <span>
+                        <b style={{ textTransform: "capitalize" }}>
+                          {nombreDia(d.fecha)} {fmtCorta(d.fecha)}
+                        </b>
+                      </span>
+                      <span style={{ textAlign: "right" }}>
+                        <b>{fmtNum(d.horasPagadas, 2)} h</b>
+                        {tarifa != null && d.horasPagadas > 0 && (
+                          <div className="line" style={{ marginTop: 0 }}>
+                            {fmtNum(d.horasPagadas, 2)} × {dinero(tarifa)} = {dinero(redondear2(d.horasPagadas * tarifa))}
+                          </div>
+                        )}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 4 }}>{e.titulo}</div>
+                    <div className="line" style={{ marginTop: 2 }}>
+                      {e.detalle}
+                    </div>
+                    {d.fueAlCampo && (d.dieta > 0 || d.combustible > 0) && (
+                      <div className="line" style={{ marginTop: 4 }}>
+                        Aparte, el lunes: dieta {dinero(d.dieta)}
+                        {d.combustible > 0 ? ` + combustible ${dinero(redondear2(d.combustible))}` : ""}
+                        {semanaPagada ? " (ya pagado)" : ""}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
       {perfil.paga_desde == null ? (
         <div className="aviso" style={{ marginBottom: 12 }}>
           El administrador todavía no ha puesto desde cuándo empiezas a cobrar. Cuando lo ponga, aquí van a salir tus
@@ -143,11 +249,16 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
       )}
       {res.campo.dias > 0 && (
         <div className="resumen">
-          <b>Dieta y combustible por cobrar el lunes</b>
+          <b>Aparte: dieta y combustible (se pagan los lunes)</b>
           <div>
-            {res.campo.dias} {res.campo.dias === 1 ? "día" : "días"} en el campo · dieta {dinero(res.campo.dieta)} +
-            combustible {dinero(res.campo.combustible)}
+            {res.campo.dias} {res.campo.dias === 1 ? "día" : "días"} en el campo
           </div>
+          <div>Dieta: {dinero(res.campo.dieta)}</div>
+          <div>Combustible: {dinero(res.campo.combustible)}</div>
+          <div>
+            Total de dieta y combustible: <b>{dinero(res.campo.dieta + res.campo.combustible)}</b>
+          </div>
+          <div className="line">Este dinero no es parte del pago de la quincena.</div>
         </div>
       )}
 

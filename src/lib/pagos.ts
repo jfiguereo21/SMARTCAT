@@ -144,6 +144,7 @@ export type DiaPago = {
   feriado: string | null; // nombre del festivo, si lo es
   nota: string | null;
   tarifa: number | null; // precio por hora que regía ese día
+  minimo?: number; // mínimo de horas que regía ese día (solo días normales con conduce)
   dieta: number; // dieta de ese día (se cobra si fueAlCampo)
   combustible: number; // combustible de ese día (se cobra si fueAlCampo)
 };
@@ -299,6 +300,7 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
           : {
               ...base,
               tipo: "normal",
+              minimo: diaSemana(fecha) === 6 ? t.minimo_horas_sabado : t.minimo_horas_dia,
               horasPagadas: horasPagablesDiaNormal(
                 aprobadas,
                 diaSemana(fecha) === 6 ? t.minimo_horas_sabado : t.minimo_horas_dia
@@ -530,6 +532,57 @@ export const etiquetaTipo: Record<TipoDia, string> = {
   ajuste: "Ajustado",
   pendiente: "Por aprobar",
 };
+
+// Explicación de un día en palabras sencillas, para que el operador entienda qué se le paga y por qué.
+const fmtH = (n: number) => `${String(redondear2(n)).replace(".", ",")} ${redondear2(n) === 1 ? "hora" : "horas"}`;
+
+export function explicarDia(d: DiaPago): { titulo: string; detalle: string } {
+  const dom = diaSemana(d.fecha) === 0;
+  const especial = d.feriado ?? (dom ? "domingo" : "");
+  switch (d.tipo) {
+    case "normal": {
+      const min = d.minimo ?? MIN_HORAS_DIA;
+      if (d.horasConduce < min) {
+        return {
+          titulo: "Trabajaste con conduce",
+          detalle: `En el conduce hay ${fmtH(d.horasConduce)}, pero el mínimo del día es ${fmtH(min)}. Se te pagan ${fmtH(d.horasPagadas)}.`,
+        };
+      }
+      if (redondear2(d.horasConduce) === d.horasPagadas) {
+        return { titulo: "Trabajaste con conduce", detalle: `En el conduce hay ${fmtH(d.horasConduce)}. Se te pagan ${fmtH(d.horasPagadas)}.` };
+      }
+      return {
+        titulo: "Trabajaste con conduce",
+        detalle: `En el conduce hay ${fmtH(d.horasConduce)}. Se redondea a horas completas (pasados 15 minutos cuenta la hora siguiente). Se te pagan ${fmtH(d.horasPagadas)}.`,
+      };
+    }
+    case "doble":
+      return {
+        titulo: `Trabajaste en ${d.feriado ? `festivo (${d.feriado})` : "domingo"}`,
+        detalle: `En el conduce hay ${fmtH(d.horasConduce)}. En ${d.feriado ? "festivo" : "domingo"} se paga el doble: ${fmtH(d.horasPagadas)}.`,
+      };
+    case "ajuste":
+      return {
+        titulo: d.nota ?? "Día aprobado por el administrador",
+        detalle:
+          d.horasPagadas > 0
+            ? `El administrador aprobó ${fmtH(d.horasPagadas)} para este día.`
+            : "El administrador puso este día sin pago.",
+      };
+    case "sin_conduce":
+      return {
+        titulo: "No hay conduce ni reporte",
+        detalle: "Si estuviste en el alojamiento o reparando la máquina, tienes que reportar el día. Sin reporte no se paga.",
+      };
+    case "no_paga":
+      return { titulo: `No se trabajó (${especial})`, detalle: "Los domingos y festivos sin trabajo no se pagan." };
+    case "pendiente":
+      return {
+        titulo: "Esperando aprobación",
+        detalle: "El administrador todavía no lo ha aprobado. Todavía no se cuenta; cuando lo apruebe se suma aquí.",
+      };
+  }
+}
 
 // --- Dieta y combustible: se pagan por cada día que el operador fue al campo, y se entregan cada lunes ---
 
