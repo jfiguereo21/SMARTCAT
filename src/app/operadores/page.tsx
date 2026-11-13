@@ -6,6 +6,7 @@ import Nav from "@/components/Nav";
 import { aNumero, fmtMonto, fmtNum, hoyRD, type Machine } from "@/lib/machines";
 import { corteDe, resumenHoras, type Conduce } from "@/lib/conduces";
 import TratosOperador from "@/components/TratosOperador";
+import NuevoUsuario from "@/components/NuevoUsuario";
 import Link from "next/link";
 import {
   aAjusteRow,
@@ -281,6 +282,7 @@ export default function OperadoresPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
   const [editando, setEditando] = useState<Perfil | null>(null);
+  const [creando, setCreando] = useState(false);
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
@@ -385,12 +387,14 @@ export default function OperadoresPage() {
       <Nav activa="operadores" />
       <div className="top">
         <h1>Operadores</h1>
+        <button className="btn primary" onClick={() => setCreando(true)}>
+          + Nuevo usuario
+        </button>
       </div>
 
-      <div className="resumen" style={{ fontSize: 14 }}>
-        <b>Para agregar un operador:</b> en Supabase entra a Authentication &gt; Users &gt; Add user, y crea su correo
-        y una clave. Cuando el operador exista, aparece aquí sin máquinas: tócalo, ponle su nombre y marca las máquinas
-        que puede reportar. Le das el correo y la clave y abre la app en su celular.
+      <div className="hint" style={{ marginBottom: 8 }}>
+        Para agregar un operador toca "+ Nuevo usuario": le pones nombre, correo y clave, y marcas sus máquinas. Luego le
+        das el correo y la clave y abre la app en su celular.
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -492,6 +496,17 @@ export default function OperadoresPage() {
           </button>
         );
       })}
+
+      {creando && (
+        <NuevoUsuario
+          maquinas={maquinas}
+          onClose={() => setCreando(false)}
+          onCreated={() => {
+            setCreando(false);
+            cargar();
+          }}
+        />
+      )}
 
       {editando && (
         <EditorOperador
