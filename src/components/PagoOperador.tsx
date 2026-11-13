@@ -30,6 +30,7 @@ import {
   type PerfilPago,
   type Quincena,
   type ReporteDiaRow,
+  type TratoRow,
 } from "@/lib/pagos";
 
 export type DatosOperador = {
@@ -38,6 +39,7 @@ export type DatosOperador = {
   feriados: Record<string, string>;
   ajustes: AjusteRow[];
   reportes: ReporteDiaRow[];
+  tratos: TratoRow[];
   deudas: DeudaRow[];
   descuentos: DescuentoRow[];
   pagos: PagoRow[];
@@ -236,8 +238,9 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         feriados: d.feriados,
         ajustes: ajustesMapa,
         trato: perfil,
+        tratos: d.tratos,
       }),
-    [q, perfil.paga_desde, perfil, hoy, d.conduces, d.feriados, ajustesMapa]
+    [q, perfil.paga_desde, perfil, d.tratos, hoy, d.conduces, d.feriados, ajustesMapa]
   );
   const tot = totalizar(dias, perfil.tarifa_hora);
   const pago = d.pagos.find((p) => p.tipo === "quincena" && p.periodo_inicio === q.inicio && p.periodo_fin === q.fin);
@@ -527,8 +530,9 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
       feriados: d.feriados,
       ajustes: ajustesMapa,
       trato: perfil,
+      tratos: d.tratos,
     });
-    return { dias, total: totalCampo(dias, perfil.dieta_diaria, perfil.combustible_diario) };
+    return { dias, total: totalCampo(dias) };
   };
 
   async function registrar(l: string, sugerido: { dieta: number; combustible: number }) {
@@ -583,9 +587,10 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
     <>
       {error && <div className="error">{error}</div>}
       <div className="hint" style={{ marginBottom: 8 }}>
-        La dieta y el combustible se pagan por cada día que el operador fue al campo. Cada lunes se entrega lo de la
-        semana anterior. Los días de 4 horas sin ir al campo no cobran. Los montos por día se ponen en Operadores
-        ({dinero(perfil.dieta_diaria)} de dieta y {dinero(perfil.combustible_diario)} de combustible por día).
+        La dieta y el combustible se pagan por cada día que el operador estuvo presente (con conduce o con reporte de
+        día aprobado). Cada lunes se entrega lo de la semana anterior. Los montos y sus cambios se ponen en Operadores
+        (hoy: {dinero(perfil.dieta_diaria)} de dieta por día y {dinero(perfil.combustible_diario)} de combustible por{" "}
+        {perfil.combustible_por === "semana" ? "semana" : "día"}).
       </div>
       {lunes.length === 0 && <div className="empty">Todavía no hay semanas para pagar.</div>}
       {lunes.map((l) => {

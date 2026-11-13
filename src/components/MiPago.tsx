@@ -12,6 +12,7 @@ import {
   aPagoRow,
   aPerfilPago,
   aReporteDiaRow,
+  aTratoRow,
   fmtCorta,
   mapaAjustes,
   redondear2,
@@ -23,6 +24,7 @@ import {
   type PagoRow,
   type PerfilPago,
   type ReporteDiaRow,
+  type TratoRow,
 } from "@/lib/pagos";
 
 const dinero = (n: number) => fmtMonto(n, "DOP");
@@ -33,6 +35,7 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
   const [feriados, setFeriados] = useState<Record<string, string>>({});
   const [ajustes, setAjustes] = useState<AjusteRow[]>([]);
   const [reportes, setReportes] = useState<ReporteDiaRow[]>([]);
+  const [tratos, setTratos] = useState<TratoRow[]>([]);
   const [deudas, setDeudas] = useState<DeudaRow[]>([]);
   const [descuentos, setDescuentos] = useState<DescuentoRow[]>([]);
   const [pagos, setPagos] = useState<PagoRow[]>([]);
@@ -44,17 +47,18 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
     Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
+        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
         .eq("user_id", uid)
         .maybeSingle(),
       supabase.from("feriados").select("fecha, nombre"),
       supabase.from("dias_operador").select("*").eq("user_id", uid),
       supabase.from("reportes_dia").select("*").eq("user_id", uid),
+      supabase.from("tratos_operador").select("*").eq("user_id", uid),
       supabase.from("deudas").select("*").eq("user_id", uid),
       supabase.from("descuentos_deuda").select("*").eq("user_id", uid),
       supabase.from("pagos_operador").select("*").eq("user_id", uid).order("fecha_pago", { ascending: false }),
-    ]).then(([p, f, a, rd, d, ds, pg]) => {
-      const fallo = p.error ?? f.error ?? a.error ?? rd.error ?? d.error ?? ds.error ?? pg.error;
+    ]).then(([p, f, a, rd, tr, d, ds, pg]) => {
+      const fallo = p.error ?? f.error ?? a.error ?? rd.error ?? tr.error ?? d.error ?? ds.error ?? pg.error;
       if (fallo) return setError(`No se pudo cargar tu pago: ${fallo.message}`);
       setPerfil(p.data ? aPerfilPago(p.data) : null);
       const m: Record<string, string> = {};
@@ -62,6 +66,7 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
       setFeriados(m);
       setAjustes((a.data ?? []).map(aAjusteRow));
       setReportes((rd.data ?? []).map(aReporteDiaRow));
+      setTratos((tr.data ?? []).map(aTratoRow));
       setDeudas((d.data ?? []).map(aDeudaRow));
       setDescuentos((ds.data ?? []).map(aDescuentoRow));
       setPagos((pg.data ?? []).map(aPagoRow));
@@ -87,6 +92,7 @@ export default function MiPago({ uid, conduces, recarga = 0 }: { uid: string; co
     conduces: conducesDia,
     feriados,
     ajustes: ajustesMapa,
+    tratos,
     deudas,
     descuentos,
     pagos,

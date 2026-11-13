@@ -3,22 +3,26 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { aNumero, fmtNum } from "@/lib/machines";
-import { fmtCorta, ETIQUETA_REPORTE, type PerfilPago, type ReporteDiaRow } from "@/lib/pagos";
+import { diaSemana, fmtCorta, ETIQUETA_REPORTE, tratoVigente, type PerfilPago, type ReporteDiaRow, type TratoRow } from "@/lib/pagos";
 
 const HORAS_REPARACION = 8;
 
 function Fila({
   r,
   perfil,
+  tratos,
   onChanged,
 }: {
   r: ReporteDiaRow;
   perfil: PerfilPago | undefined;
+  tratos: TratoRow[];
   onChanged: () => void;
 }) {
-  const sugerida = r.tipo === "alojamiento" ? perfil?.horas_alojamiento ?? 4 : HORAS_REPARACION;
+  const trato = tratoVigente(perfil ?? {}, tratos, r.fecha);
+  // Domingo: no se pagan horas de alojamiento; un festivo lo cambias tú al aprobar.
+  const sugerida = r.tipo === "alojamiento" ? (diaSemana(r.fecha) === 0 ? 0 : trato.horas_alojamiento) : HORAS_REPARACION;
   const [horas, setHoras] = useState(String(sugerida));
-  const [campo, setCampo] = useState(r.tipo === "reparacion");
+  const [campo, setCampo] = useState(r.tipo === "reparacion" || trato.dieta_alojamiento);
   const [motivo, setMotivo] = useState("");
   const [rechazando, setRechazando] = useState(false);
   const [error, setError] = useState("");
@@ -103,10 +107,12 @@ function Fila({
 export default function ReportesPorAprobar({
   reportes,
   perfiles,
+  tratos,
   onChanged,
 }: {
   reportes: ReporteDiaRow[];
   perfiles: PerfilPago[];
+  tratos: TratoRow[];
   onChanged: () => void;
 }) {
   const pendientes = reportes.filter((r) => r.estado === "Pendiente");
@@ -117,7 +123,7 @@ export default function ReportesPorAprobar({
         Días reportados sin conduce, por aprobar ({pendientes.length})
       </div>
       {pendientes.map((r) => (
-        <Fila key={r.id} r={r} perfil={perfiles.find((p) => p.user_id === r.user_id)} onChanged={onChanged} />
+        <Fila key={r.id} r={r} perfil={perfiles.find((p) => p.user_id === r.user_id)} tratos={tratos.filter((t) => t.user_id === r.user_id)} onChanged={onChanged} />
       ))}
     </div>
   );

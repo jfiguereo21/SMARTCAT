@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
 import { aNumero, fmtMonto, fmtNum, hoyRD, type Machine } from "@/lib/machines";
 import { corteDe, resumenHoras, type Conduce } from "@/lib/conduces";
+import TratosOperador from "@/components/TratosOperador";
+import { aPerfilPago } from "@/lib/pagos";
 
 type Perfil = {
   user_id: string;
@@ -15,6 +17,7 @@ type Perfil = {
   paga_desde: string | null;
   dieta_diaria: number;
   combustible_diario: number;
+  combustible_por: "dia" | "semana";
   minimo_horas_dia: number;
   minimo_horas_sabado: number;
   horas_alojamiento: number;
@@ -42,6 +45,7 @@ function EditorOperador({
   const [pagaDesde, setPagaDesde] = useState(perfil.paga_desde ?? "");
   const [dieta, setDieta] = useState(String(perfil.dieta_diaria ?? 0));
   const [combustible, setCombustible] = useState(String(perfil.combustible_diario ?? 0));
+  const [combPor, setCombPor] = useState<"dia" | "semana">(perfil.combustible_por ?? "dia");
   const [minDia, setMinDia] = useState(String(perfil.minimo_horas_dia ?? 8));
   const [minSab, setMinSab] = useState(String(perfil.minimo_horas_sabado ?? 8));
   const [hAloja, setHAloja] = useState(String(perfil.horas_alojamiento ?? 4));
@@ -82,6 +86,7 @@ function EditorOperador({
         paga_desde: pagaDesde === "" ? null : pagaDesde,
         dieta_diaria: di,
         combustible_diario: co,
+        combustible_por: combPor,
         minimo_horas_dia: nMinDia,
         minimo_horas_sabado: nMinSab,
         horas_alojamiento: nAloja,
@@ -140,16 +145,23 @@ function EditorOperador({
           </div>
           <div className="grid2">
             <div className="field">
-              <label htmlFor="op-dieta">Dieta por día de campo (RD$)</label>
+              <label htmlFor="op-dieta">Dieta por día (RD$)</label>
               <input id="op-dieta" inputMode="decimal" value={dieta} onChange={(e) => setDieta(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="op-comb">Combustible por día de campo (RD$)</label>
+              <label htmlFor="op-comb">Combustible (RD$)</label>
               <input id="op-comb" inputMode="decimal" value={combustible} onChange={(e) => setCombustible(e.target.value)} />
             </div>
           </div>
+          <div className="field">
+            <label htmlFor="op-combpor">El combustible se da por</label>
+            <select id="op-combpor" value={combPor} onChange={(e) => setCombPor(e.target.value as "dia" | "semana")}>
+              <option value="dia">Día</option>
+              <option value="semana">Semana (se reparte entre los 7 días)</option>
+            </select>
+          </div>
           <div className="hint">
-            El precio por hora es el que acordaste con el operador y no cambia salvo que tú lo cambies. La dieta y el combustible se pagan solo los días que va al campo; se entregan cada lunes. Antes de la fecha "cobra desde" no se le paga nada.
+            El precio por hora es el que acordaste con el operador y no cambia salvo que tú lo cambies. La dieta y el combustible se pagan los días que está presente (con conduce o con reporte de día aprobado); se entregan cada lunes. Antes de la fecha "cobra desde" no se le paga nada.
           </div>
         </div>
 
@@ -177,13 +189,15 @@ function EditorOperador({
           </div>
           <label className="check">
             <input type="checkbox" checked={dietaSiempre} onChange={(e) => setDietaSiempre(e.target.checked)} />
-            Cobra dieta y combustible todos los días de lunes a sábado, trabaje o no
+            El día "estuve en el alojamiento" también cobra dieta y combustible
           </label>
           <div className="hint">
             Si trabaja más del mínimo, se le pagan las horas completas hacia arriba (con 15 minutos de margen). Domingos y
             festivos: no se pagan, salvo que pidan la máquina; entonces es el doble de las horas.
           </div>
         </div>
+
+        <TratosOperador perfil={aPerfilPago(perfil as unknown as Record<string, unknown>)} />
 
         <div className="field">
           <label>Máquinas que puede reportar</label>
@@ -228,7 +242,7 @@ export default function OperadoresPage() {
     const [p, a, m, c] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, minimo_horas_dia, minimo_horas_sabado, horas_alojamiento, horas_sin_conduce, dieta_siempre")
+        .select("user_id, rol, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, minimo_horas_dia, minimo_horas_sabado, horas_alojamiento, horas_sin_conduce, dieta_siempre")
         .order("nombre"),
       supabase.from("operador_maquinas").select("user_id, machine_id"),
       supabase.from("machines").select("*").order("nombre"),
@@ -244,6 +258,7 @@ export default function OperadoresPage() {
           tarifa_hora: x.tarifa_hora == null ? null : Number(x.tarifa_hora),
           dieta_diaria: Number(x.dieta_diaria ?? 0),
           combustible_diario: Number(x.combustible_diario ?? 0),
+          combustible_por: (x.combustible_por as "dia" | "semana") ?? "dia",
           minimo_horas_dia: Number(x.minimo_horas_dia ?? 8),
           minimo_horas_sabado: Number(x.minimo_horas_sabado ?? 8),
           horas_alojamiento: Number(x.horas_alojamiento ?? 4),

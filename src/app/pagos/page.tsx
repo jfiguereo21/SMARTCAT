@@ -14,6 +14,7 @@ import {
   aPagoRow,
   aPerfilPago,
   aReporteDiaRow,
+  aTratoRow,
   calcularDias,
   fmtCorta,
   mapaAjustes,
@@ -28,6 +29,7 @@ import {
   type PagoRow,
   type PerfilPago,
   type ReporteDiaRow,
+  type TratoRow,
 } from "@/lib/pagos";
 
 type ConduceFila = { creado_por: string | null; fecha: string; horas_cobrables: number; estado: string };
@@ -107,6 +109,7 @@ export default function PagosPage() {
   const [feriados, setFeriados] = useState<Feriado[]>([]);
   const [ajustes, setAjustes] = useState<AjusteRow[]>([]);
   const [reportes, setReportes] = useState<ReporteDiaRow[]>([]);
+  const [tratos, setTratos] = useState<TratoRow[]>([]);
   const [deudas, setDeudas] = useState<DeudaRow[]>([]);
   const [descuentos, setDescuentos] = useState<DescuentoRow[]>([]);
   const [pagos, setPagos] = useState<PagoRow[]>([]);
@@ -118,22 +121,23 @@ export default function PagosPage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [p, c, f, a, rd, d, ds, pg, mq] = await Promise.all([
+    const [p, c, f, a, rd, tr, d, ds, pg, mq] = await Promise.all([
       supabase
         .from("perfiles")
-        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, horas_alojamiento, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
+        .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, horas_alojamiento, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
         .eq("rol", "operador")
         .order("nombre"),
       supabase.from("conduces").select("creado_por, fecha, horas_cobrables, estado").in("estado", ["Aprobado", "Pendiente"]),
       supabase.from("feriados").select("fecha, nombre").order("fecha"),
       supabase.from("dias_operador").select("*"),
       supabase.from("reportes_dia").select("*").order("fecha"),
+      supabase.from("tratos_operador").select("*").order("desde"),
       supabase.from("deudas").select("*").order("fecha"),
       supabase.from("descuentos_deuda").select("*"),
       supabase.from("pagos_operador").select("*"),
       supabase.from("machines").select("dueno_user_id").not("dueno_user_id", "is", null),
     ]);
-    const fallo = p.error ?? c.error ?? f.error ?? a.error ?? rd.error ?? d.error ?? ds.error ?? pg.error ?? mq.error;
+    const fallo = p.error ?? c.error ?? f.error ?? a.error ?? rd.error ?? tr.error ?? d.error ?? ds.error ?? pg.error ?? mq.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -144,6 +148,7 @@ export default function PagosPage() {
       setFeriados((f.data ?? []) as Feriado[]);
       setAjustes((a.data ?? []).map(aAjusteRow));
       setReportes((rd.data ?? []).map(aReporteDiaRow));
+      setTratos((tr.data ?? []).map(aTratoRow));
       setDeudas((d.data ?? []).map(aDeudaRow));
       setDescuentos((ds.data ?? []).map(aDescuentoRow));
       setPagos((pg.data ?? []).map(aPagoRow));
@@ -171,11 +176,12 @@ export default function PagosPage() {
       feriados: feriadosMapa,
       ajustes: ajustes.filter((x) => x.user_id === perfil.user_id),
       reportes: reportes.filter((x) => x.user_id === perfil.user_id),
+      tratos: tratos.filter((x) => x.user_id === perfil.user_id),
       deudas: deudas.filter((x) => x.user_id === perfil.user_id),
       descuentos: descuentos.filter((x) => x.user_id === perfil.user_id),
       pagos: pagos.filter((x) => x.user_id === perfil.user_id),
     }),
-    [conduces, feriadosMapa, ajustes, reportes, deudas, descuentos, pagos]
+    [conduces, feriadosMapa, ajustes, reportes, tratos, deudas, descuentos, pagos]
   );
 
   const hoy = hoyRD();
@@ -191,6 +197,7 @@ export default function PagosPage() {
       conduces: d.conduces,
       feriados: feriadosMapa,
       ajustes: ajustesDe(d),
+      tratos: d.tratos,
       deudas: d.deudas,
       descuentos: d.descuentos,
       pagos: d.pagos,
@@ -215,7 +222,7 @@ export default function PagosPage() {
           {cargando && <div className="empty">Cargando...</div>}
           {!cargando && !error && perfiles.length === 0 && <div className="empty">Todavía no hay operadores.</div>}
 
-          {!cargando && <ReportesPorAprobar reportes={reportes} perfiles={perfiles} onChanged={cargar} />}
+          {!cargando && <ReportesPorAprobar reportes={reportes} perfiles={perfiles} tratos={tratos} onChanged={cargar} />}
 
           {!cargando && cobranPorHoras.length > 0 && (
             <div className="resumen" style={{ marginBottom: 12 }}>
@@ -239,6 +246,7 @@ export default function PagosPage() {
               feriados: feriadosMapa,
               ajustes: ajustesDe(d),
               trato: p,
+              tratos: d.tratos,
             });
             const tot = totalizar(dias, p.tarifa_hora);
             const debe = redondear2(d.deudas.reduce((a, x) => a + saldoDeuda(x, d.descuentos), 0));
