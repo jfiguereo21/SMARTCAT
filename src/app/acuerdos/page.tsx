@@ -8,6 +8,7 @@ import AcuerdoEditor from "@/components/AcuerdoEditor";
 import { fmtMonto, fmtNum, fmtTarifa, hoyRD, type Acuerdo, type Machine } from "@/lib/machines";
 import { aParte, aTrabajo, type Parte, type Trabajo } from "@/lib/trabajos";
 import { corteDe, fmtFecha, type Cliente } from "@/lib/conduces";
+import { claveCorte } from "@/lib/corte";
 
 export default function AcuerdosPage() {
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
@@ -135,10 +136,12 @@ export default function AcuerdosPage() {
         const porCorte = new Map<string, { etiqueta: string; horas: number }>();
         for (const c of conduces) {
           if (c.machine_id !== a.machine_id || c.fecha < a.fecha_inicio || (a.fecha_fin != null && c.fecha > a.fecha_fin)) continue;
-          const k = corteDe(c.fecha);
-          const previo = porCorte.get(k.clave) ?? { etiqueta: k.etiqueta, horas: 0 };
+          const clave = claveCorte(c.fecha, a);
+          const incluyeAnteriores = a.corte_inicial === clave && corteDe(a.fecha_inicio).clave < clave;
+          const etiqueta = corteDe(clave).etiqueta + (incluyeAnteriores ? ` (incluye desde el ${fmtFecha(a.fecha_inicio)})` : "");
+          const previo = porCorte.get(clave) ?? { etiqueta, horas: 0 };
           previo.horas += c.horas;
-          porCorte.set(k.clave, previo);
+          porCorte.set(clave, previo);
         }
         const cortes = [...porCorte.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([, v]) => v);
         const horasTotal = cortes.reduce((acc, v) => acc + v.horas, 0);

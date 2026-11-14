@@ -7,7 +7,7 @@ import Nav from "@/components/Nav";
 import { acuerdoVigente, fmtMonto, fmtNum, hoyRD, type Acuerdo, type Machine } from "@/lib/machines";
 import { corteDe, fmtFecha } from "@/lib/conduces";
 import type { PreciosCorte } from "@/lib/combustible";
-import { armarCorte, pagoDuenos, type CargaCorte, type ConduceCorte } from "@/lib/corte";
+import { armarCorte, claveCorte, pagoDuenos, type CargaCorte, type ConduceCorte } from "@/lib/corte";
 import { construirExcelCorte, type DetalleDia } from "@/lib/corteExcel";
 import { aParte, aTrabajo, type Parte, type Trabajo } from "@/lib/trabajos";
 
@@ -104,7 +104,10 @@ export default function CortePage() {
     try {
       const detalle: DetalleDia[] = [];
       for (const c of conducesPorHora
-        .filter((x) => x.estado === "Aprobado" && corteDe(x.fecha).clave === clave)
+        .filter(
+          (x) =>
+            x.estado === "Aprobado" && claveCorte(x.fecha, acuerdoVigente(acuerdos, x.machine_id, x.fecha)) === clave
+        )
         .sort((a, b) => (a.fecha < b.fecha ? -1 : 1))) {
         const a = acuerdoVigente(acuerdos, c.machine_id, c.fecha);
         if (!a) continue;

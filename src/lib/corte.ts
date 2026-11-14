@@ -55,6 +55,13 @@ export type Corte = {
   faltaPrecio: boolean;
 };
 
+// En qué corte se cobra un día: el suyo (del 26 al 25), salvo que el acuerdo diga que lo anterior
+// se cobra todo junto en un primer corte (por ejemplo, cuando el trabajo empezó antes de usar el sistema).
+export function claveCorte(fecha: string, a: Pick<Acuerdo, "corte_inicial"> | null): string {
+  const k = corteDe(fecha).clave;
+  return a?.corte_inicial && k < a.corte_inicial ? a.corte_inicial : k;
+}
+
 export function armarCorte(
   clave: string,
   maquinas: Pick<Machine, "id" | "nombre">[],
@@ -64,11 +71,16 @@ export function armarCorte(
   precios: PreciosCorte | null
 ): Corte {
   const nombreMaq = (id: string) => maquinas.find((m) => m.id === id)?.nombre ?? "Máquina";
-  const delCorte = conduces.filter((c) => corteDe(c.fecha).clave === clave);
+  const delCorte = conduces.filter(
+    (c) => claveCorte(c.fecha, acuerdoVigente(acuerdos, c.machine_id, c.fecha)) === clave
+  );
   const pendientes = delCorte.filter((c) => c.estado === "Pendiente").length;
   const horasOk = delCorte.filter((c) => c.estado === "Aprobado");
   const cargasOk = cargas.filter(
-    (c) => corteDe(c.fecha).clave === clave && c.estado === "Aprobado" && c.origen === "Cliente"
+    (c) =>
+      claveCorte(c.fecha, acuerdoVigente(acuerdos, c.machine_id, c.fecha)) === clave &&
+      c.estado === "Aprobado" &&
+      c.origen === "Cliente"
   );
 
   const lineas = new Map<string, LineaCorte>();
