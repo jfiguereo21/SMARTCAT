@@ -5,9 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
 import AcuerdoEditor from "@/components/AcuerdoEditor";
-import { fmtMonto, fmtTarifa, hoyRD, type Acuerdo, type Machine } from "@/lib/machines";
+import { fmtMonto, fmtNum, fmtTarifa, hoyRD, type Acuerdo, type Machine } from "@/lib/machines";
 import { aParte, aTrabajo, type Parte, type Trabajo } from "@/lib/trabajos";
-import { fmtFecha, type Cliente } from "@/lib/conduces";
+import { corteDe, fmtFecha, type Cliente } from "@/lib/conduces";
 
 export default function AcuerdosPage() {
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
@@ -15,6 +15,8 @@ export default function AcuerdosPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [trabajos, setTrabajos] = useState<Trabajo[]>([]);
   const [partes, setPartes] = useState<Parte[]>([]);
+  // Conduces aprobados que se cobran por hora (los de piscinas a precio cerrado no cuentan aquí).
+  const [conduces, setConduces] = useState<{ machine_id: string; fecha: string; horas: number }[]>([]);
   const router = useRouter();
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -23,14 +25,15 @@ export default function AcuerdosPage() {
 
   const cargar = useCallback(async () => {
     const supabase = createClient();
-    const [a, m, c, tj, pt] = await Promise.all([
+    const [a, m, c, tj, pt, cd] = await Promise.all([
       supabase.from("acuerdos").select("*, machines(nombre), clients(nombre)"),
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("clients").select("id, nombre, rnc").order("nombre"),
       supabase.from("trabajos").select("*").order("created_at", { ascending: false }),
       supabase.from("trabajo_partes").select("*").order("orden"),
+      supabase.from("conduces").select("machine_id, fecha, horas_cobrables").eq("estado", "Aprobado").is("parte_id", null),
     ]);
-    const fallo = a.error ?? m.error ?? c.error ?? tj.error ?? pt.error;
+    const fallo = a.error ?? m.error ?? c.error ?? tj.error ?? pt.error ?? cd.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
@@ -39,6 +42,13 @@ export default function AcuerdosPage() {
       setClientes((c.data ?? []) as Cliente[]);
       setTrabajos((tj.data ?? []).map(aTrabajo));
       setPartes((pt.data ?? []).map(aParte));
+      setConduces(
+        (cd.data ?? []).map((x: { machine_id: string; fecha: string; horas_cobrables: number | string }) => ({
+          machine_id: x.machine_id,
+          fecha: x.fecha,
+          horas: Number(x.horas_cobrables),
+        }))
+      );
     }
     setCargando(false);
   }, []);
@@ -121,6 +131,17 @@ export default function AcuerdosPage() {
         const vigente = a.fecha_inicio <= hoy && (a.fecha_fin == null || a.fecha_fin >= hoy);
         const futuro = a.fecha_inicio > hoy;
         const sub = [a.clients?.nombre, a.obra].filter(Boolean).join(" · ");
+        // Todo lo generado en este acuerdo, de principio a fin, repartido por corte (cada corte va del 26 al 25).
+        const porCorte = new Map<string, { etiqueta: string; horas: number }>();
+        for (const c of conduces) {
+          if (c.machine_id !== a.machine_id || c.fecha < a.fecha_inicio || (a.fecha_fin != null && c.fecha > a.fecha_fin)) continue;
+          const k = corteDe(c.fecha);
+          const previo = porCorte.get(k.clave) ?? { etiqueta: k.etiqueta, horas: 0 };
+          previo.horas += c.horas;
+          porCorte.set(k.clave, previo);
+        }
+        const cortes = [...porCorte.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([, v]) => v);
+        const horasTotal = cortes.reduce((acc, v) => acc + v.horas, 0);
         return (
           <button key={a.id} className="card" onClick={() => setEditando(a)}>
             <div className="row">
@@ -140,6 +161,19 @@ export default function AcuerdosPage() {
               {a.fecha_fin ? ` hasta ${fmtFecha(a.fecha_fin)}` : ""}
             </div>
             {a.notas && <div className="line">{a.notas}</div>}
+            {horasTotal > 0 && (
+              <div className="resumen" style={{ marginTop: 8, fontSize: 14 }}>
+                <div>
+                  <b>Generado en total:</b> {fmtNum(horasTotal, 2)} h = <b>{fmtMonto(horasTotal * a.tarifa, a.moneda)}</b>
+                </div>
+                {cortes.map((v) => (
+                  <div className="line" key={v.etiqueta}>
+                    {v.etiqueta}: {fmtNum(v.horas, 2)} h = {fmtMonto(v.horas * a.tarifa, a.moneda)}
+                  </div>
+                ))}
+                <div className="hint">Horas aprobadas por la tarifa, sin descontar el combustible que dio el cliente.</div>
+              </div>
+            )}
           </button>
         );
       })}
