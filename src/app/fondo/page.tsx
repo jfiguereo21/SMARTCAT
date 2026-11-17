@@ -32,7 +32,7 @@ type Cierre = {
   nota: string | null;
 };
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-type PagoOpFila = { id: string; user_id: string; fecha_pago: string; neto: number };
+type PagoOpFila = { id: string; user_id: string; fecha_pago: string; neto: number; fuera_del_fondo: boolean };
 type Cuadre = { id: string; fecha: string; saldo_banco: number; saldo_app: number; nota: string | null };
 
 const rd = (n: number) => fmtMonto(n, "DOP");
@@ -85,7 +85,7 @@ export default function FondoPage() {
         .select("*, machines(nombre)")
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false }),
-      supabase.from("pagos_operador").select("id, user_id, fecha_pago, neto"),
+      supabase.from("pagos_operador").select("id, user_id, fecha_pago, neto, fuera_del_fondo"),
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("perfiles").select("user_id, nombre, rol"),
       supabase.from("fondo_cuadres").select("*").order("created_at", { ascending: false }).limit(12),
@@ -152,7 +152,7 @@ export default function FondoPage() {
       .map((m) => ({ clave: m.id, fecha: m.fecha, mov: m }));
     if (filtro === "todos" || filtro === "Pagado") {
       for (const p of pagosOp)
-        if (iniciado && p.fecha_pago >= (config?.fecha_inicial ?? ""))
+        if (iniciado && !p.fuera_del_fondo && p.fecha_pago >= (config?.fecha_inicial ?? ""))
           lista.push({ clave: `p-${p.id}`, fecha: p.fecha_pago, pago: p });
     }
     return lista.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0)).slice(0, 150);

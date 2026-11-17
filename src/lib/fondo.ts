@@ -3,7 +3,7 @@
 // Saldo del fondo = saldo inicial
 //   + entradas del fondo ya pagadas (desde la fecha de inicio)
 //   − salidas del fondo ya pagadas (desde la fecha de inicio)
-//   − pagos a operadores (automático, desde la fecha de inicio)
+//   − pagos a operadores (automático, desde la fecha de inicio, salvo los marcados "fuera del fondo")
 // Lo que un socio paga de su bolsillo NO toca el saldo del fondo: se anota en la cuenta con socios.
 
 export type TipoMov = "Entrada" | "Salida";
@@ -73,7 +73,7 @@ export function necesitaMiAccion(m: FondoMov, uid: string): boolean {
   return false;
 }
 
-export type PagoOp = { fecha_pago: string; neto: number };
+export type PagoOp = { fecha_pago: string; neto: number; fuera_del_fondo?: boolean };
 
 export type SaldoFondo = {
   inicial: number;
@@ -101,7 +101,7 @@ export function saldoFondo(config: FondoConfig, movs: FondoMov[], pagosOp: PagoO
     }
   }
   let operadores = 0;
-  for (const p of pagosOp) if (cuenta(p.fecha_pago)) operadores += p.neto;
+  for (const p of pagosOp) if (!p.fuera_del_fondo && cuenta(p.fecha_pago)) operadores += p.neto;
   entradas = redondear2(entradas);
   salidas = redondear2(salidas);
   operadores = redondear2(operadores);

@@ -451,6 +451,7 @@ export type PagoRow = {
   neto: number;
   nota: string | null;
   voucher_path: string | null; // foto del voucher que sube el administrador
+  fuera_del_fondo?: boolean; // se pagó con dinero de fuera del Fondo: no baja su saldo
 };
 
 export type DescuentoRow = {

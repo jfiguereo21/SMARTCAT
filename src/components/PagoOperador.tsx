@@ -216,6 +216,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
   const [fechaPago, setFechaPago] = useState(hoy);
   const [nota, setNota] = useState("");
   const [voucher, setVoucher] = useState<File | null>(null);
+  const [fuera, setFuera] = useState(false);
   const [editDia, setEditDia] = useState<DiaPago | null>(null);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -289,6 +290,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         descuento_deudas: totalDescuento,
         nota: nota.trim() || null,
         voucher_path: voucherPath,
+        fuera_del_fondo: fuera,
         creado_por: await idAdmin(),
       })
       .select("id")
@@ -315,6 +317,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
     setGuardando(false);
     setNota("");
     setVoucher(null);
+    setFuera(false);
     onChanged();
   }
 
@@ -416,6 +419,12 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         <div className="resumen">
           <div>
             <span className="pill disp">Pagado el {fmtCorta(pago.fecha_pago)}</span>
+            {pago.fuera_del_fondo && (
+              <>
+                {" "}
+                <span className="pill">Fuera del Fondo</span>
+              </>
+            )}
           </div>
           {pago.descuento_deudas > 0 && <div>Descontado por deudas: {dinero(pago.descuento_deudas)}</div>}
           <div>
@@ -471,6 +480,10 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
             </div>
           </div>
           <CampoVoucher id="qp-voucher" archivo={voucher} onChange={setVoucher} />
+          <label className="check">
+            <input type="checkbox" checked={fuera} onChange={(e) => setFuera(e.target.checked)} />
+            Ya se pagó con dinero de afuera del Fondo (no baja el saldo del Fondo)
+          </label>
           <div className="actions">
             <button
               className="btn primary grow"
@@ -513,6 +526,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
   });
   const [valores, setValores] = useState<Record<string, { dieta: string; comb: string }>>({});
   const [vouchers, setVouchers] = useState<Record<string, File | null>>({});
+  const [fueras, setFueras] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
@@ -563,6 +577,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
       dieta,
       combustible: comb,
       voucher_path: voucherPath,
+      fuera_del_fondo: !!fueras[l],
       creado_por: await idAdmin(),
     });
     setGuardando(false);
@@ -602,7 +617,17 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
           <div className="card" key={l} style={{ cursor: "default" }}>
             <div className="row">
               <h2 style={{ fontSize: 16 }}>{s.etiqueta}</h2>
-              {p && <span className="pill disp">Pagado</span>}
+              {p && (
+                <span>
+                  <span className="pill disp">Pagado</span>
+                  {p.fuera_del_fondo && (
+                    <>
+                      {" "}
+                      <span className="pill">Fuera del Fondo</span>
+                    </>
+                  )}
+                </span>
+              )}
             </div>
             <div className="line">
               Fue al campo {total.dias} {total.dias === 1 ? "día" : "días"}
@@ -656,6 +681,14 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
                   archivo={vouchers[l] ?? null}
                   onChange={(f) => setVouchers((x) => ({ ...x, [l]: f }))}
                 />
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={!!fueras[l]}
+                    onChange={(e) => setFueras((x) => ({ ...x, [l]: e.target.checked }))}
+                  />
+                  Ya se pagó con dinero de afuera del Fondo
+                </label>
                 <div className="actions">
                   <button
                     className="btn small primary"
