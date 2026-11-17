@@ -217,6 +217,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
   const [nota, setNota] = useState("");
   const [voucher, setVoucher] = useState<File | null>(null);
   const [fuera, setFuera] = useState(false);
+  const [descViejo, setDescViejo] = useState("");
   const [editDia, setEditDia] = useState<DiaPago | null>(null);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -249,7 +250,10 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
   const plan = useMemo(() => planDescuentos(d.deudas, d.descuentos, tot.bruto), [d.deudas, d.descuentos, tot.bruto]);
   const montoDe = (id: string, sugerido: number) => aNumero(montos[id] ?? String(sugerido)) ?? 0;
   const totalDescuento = redondear2(plan.reduce((a, l) => a + montoDe(l.deuda.id, l.descuento), 0));
-  const neto = redondear2(tot.bruto - totalDescuento);
+  // Descuento por cuentas viejas que ya se cuadraron: se resta del pago pero NO crea ninguna deuda.
+  const descV = Math.max(0, aNumero(descViejo) ?? 0);
+  const totalDesc = redondear2(totalDescuento + descV);
+  const neto = redondear2(tot.bruto - totalDesc);
 
   const faltaTarifa = perfil.tarifa_hora == null;
   const faltaDesde = perfil.paga_desde == null;
@@ -263,7 +267,10 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
       if (m < 0) return setError("Un descuento no puede ser negativo.");
       if (m > l.saldo) return setError(`"${l.deuda.concepto}" solo debe ${dinero(l.saldo)}.`);
     }
-    if (totalDescuento > tot.bruto) return setError("Los descuentos no pueden ser más de lo que gana en la quincena.");
+    if (descViejo.trim() !== "" && (aNumero(descViejo) == null || (aNumero(descViejo) ?? 0) < 0))
+      return setError("Escribe el descuento de cuentas viejas con números, o déjalo vacío.");
+    if (descV > 0 && nota.trim() === "") return setError("Escribe en la nota por qué se descontó, por ejemplo: préstamo anterior.");
+    if (totalDesc > tot.bruto) return setError("Los descuentos no pueden ser más de lo que gana en la quincena.");
 
     setGuardando(true);
     const supabase = createClient();
@@ -287,7 +294,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         horas: tot.horas,
         tarifa_hora: perfil.tarifa_hora,
         bruto: tot.bruto,
-        descuento_deudas: totalDescuento,
+        descuento_deudas: totalDesc,
         nota: nota.trim() || null,
         voucher_path: voucherPath,
         fuera_del_fondo: fuera,
@@ -318,6 +325,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
     setNota("");
     setVoucher(null);
     setFuera(false);
+    setDescViejo("");
     onChanged();
   }
 
@@ -464,6 +472,14 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
               <div className="line">Total descontado: {dinero(totalDescuento)}</div>
             </div>
           )}
+
+          <div className="field">
+            <label htmlFor="qp-viejo">Descuento de una cuenta vieja ya cuadrada (opcional)</label>
+            <input id="qp-viejo" inputMode="decimal" placeholder="0" value={descViejo} onChange={(e) => setDescViejo(e.target.value)} />
+            <div className="hint">
+              Se resta del pago pero no crea ninguna deuda. Explica el motivo en la Nota (por ejemplo: préstamo anterior a la app).
+            </div>
+          </div>
 
           <div className="resumen">
             Se le pagaría: <b>{dinero(neto)}</b>
