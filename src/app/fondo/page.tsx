@@ -282,6 +282,16 @@ export default function FondoPage() {
           <br />
           <small style={{ fontWeight: 400 }}>de mi bolsillo</small>
         </button>
+        <button className="btn primary" style={{ minHeight: 76, fontSize: 17 }} onClick={() => abrirNuevo("gasto")}>
+          Gasto del fondo
+          <br />
+          <small style={{ fontWeight: 400 }}>sale de la cuenta</small>
+        </button>
+        <button className="btn primary" style={{ minHeight: 76, fontSize: 17 }} onClick={() => abrirNuevo("reparto")}>
+          Repartir ganancia
+          <br />
+          <small style={{ fontWeight: 400 }}>a un socio</small>
+        </button>
       </div>
 
       {error && <div className="error">{error}</div>}
