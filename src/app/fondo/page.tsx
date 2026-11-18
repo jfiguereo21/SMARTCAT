@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
 import FondoEditor, { type Modo, type Socio } from "@/components/FondoEditor";
+import TraspasoEditor from "@/components/TraspasoEditor";
 import { aNumero, fmtMonto, hoyRD, type Machine } from "@/lib/machines";
 import { fmtFecha } from "@/lib/conduces";
 import { construirExcel, type FilaCierre } from "@/lib/cierreExcel";
@@ -12,11 +13,14 @@ import {
   diferenciaCuadre,
   estadoCierre,
   estadoMov,
+  estadoTraspaso,
   necesitaMiAccion,
   saldoFondo,
+  saldoPorSocio,
   type EstadoMov,
   type FondoConfig,
   type FondoMov,
+  type Traspaso,
 } from "@/lib/fondo";
 
 type Vista = "movimientos" | "socios" | "archivo" | "cuadre";
@@ -32,7 +36,7 @@ type Cierre = {
   nota: string | null;
 };
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-type PagoOpFila = { id: string; user_id: string; fecha_pago: string; neto: number; fuera_del_fondo: boolean };
+type PagoOpFila = { id: string; user_id: string; fecha_pago: string; neto: number; fuera_del_fondo: boolean; fondo_socio_id: string | null };
 type Cuadre = { id: string; fecha: string; saldo_banco: number; saldo_app: number; nota: string | null };
 
 const rd = (n: number) => fmtMonto(n, "DOP");
@@ -42,6 +46,9 @@ export default function FondoPage() {
   const [config, setConfig] = useState<FondoConfig | null>(null);
   const [movs, setMovs] = useState<FondoMov[]>([]);
   const [pagosOp, setPagosOp] = useState<PagoOpFila[]>([]);
+  const [traspasos, setTraspasos] = useState<Traspaso[]>([]);
+  // undefined = cerrado, null = traspaso nuevo
+  const [editandoTr, setEditandoTr] = useState<Traspaso | null | undefined>(undefined);
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
   const [perfiles, setPerfiles] = useState<(Socio & { rol: string })[]>([]);
   const [cuadres, setCuadres] = useState<Cuadre[]>([]);
@@ -64,7 +71,7 @@ export default function FondoPage() {
   };
 
   // Inicio del fondo
-  const [saldoIni, setSaldoIni] = useState("");
+  const [saldosIni, setSaldosIni] = useState<Record<string, string>>({});
   const [fechaIni, setFechaIni] = useState(hoyRD());
   const [editandoInicio, setEditandoInicio] = useState(false);
   const [msg, setMsg] = useState("");
@@ -78,30 +85,38 @@ export default function FondoPage() {
     const supabase = createClient();
     const { data: u } = await supabase.auth.getUser();
     setUid(u.user?.id ?? "");
-    const [c, m, po, mq, pf, cu, ci] = await Promise.all([
-      supabase.from("fondo_config").select("saldo_inicial, fecha_inicial").maybeSingle(),
+    const [c, m, po, mq, pf, cu, ci, tr] = await Promise.all([
+      supabase.from("fondo_config").select("saldo_inicial, fecha_inicial, saldos_socios").maybeSingle(),
       supabase
         .from("fondo_movimientos")
         .select("*, machines(nombre)")
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false }),
-      supabase.from("pagos_operador").select("id, user_id, fecha_pago, neto, fuera_del_fondo"),
+      supabase.from("pagos_operador").select("id, user_id, fecha_pago, neto, fuera_del_fondo, fondo_socio_id"),
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("perfiles").select("user_id, nombre, rol"),
       supabase.from("fondo_cuadres").select("*").order("created_at", { ascending: false }).limit(12),
       supabase.from("fondo_cierres").select("*").order("created_at", { ascending: false }),
+      supabase.from("fondo_traspasos").select("*").order("fecha", { ascending: false }).order("created_at", { ascending: false }),
     ]);
-    const fallo = c.error ?? m.error ?? po.error ?? mq.error ?? pf.error ?? cu.error ?? ci.error;
+    const fallo = c.error ?? m.error ?? po.error ?? mq.error ?? pf.error ?? cu.error ?? ci.error ?? tr.error;
     if (fallo) setError(`No se pudieron cargar los datos: ${fallo.message}`);
     else {
       setError("");
       setConfig(
         c.data
-          ? { saldo_inicial: Number(c.data.saldo_inicial), fecha_inicial: c.data.fecha_inicial }
+          ? {
+              saldo_inicial: Number(c.data.saldo_inicial),
+              fecha_inicial: c.data.fecha_inicial,
+              saldos_socios: Object.fromEntries(
+                Object.entries((c.data.saldos_socios ?? {}) as Record<string, unknown>).map(([k, v]) => [k, Number(v)])
+              ),
+            }
           : { saldo_inicial: 0, fecha_inicial: null }
       );
       setMovs(((m.data ?? []) as unknown as FondoMov[]).map((x) => ({ ...x, monto: Number(x.monto) })));
       setPagosOp(((po.data ?? []) as PagoOpFila[]).map((x) => ({ ...x, neto: Number(x.neto) })));
+      setTraspasos(((tr.data ?? []) as Traspaso[]).map((x) => ({ ...x, monto: Number(x.monto) })));
       setMaquinas((mq.data ?? []) as Machine[]);
       setPerfiles((pf.data ?? []) as (Socio & { rol: string })[]);
       setCierres(
@@ -136,6 +151,21 @@ export default function FondoPage() {
     () => saldoFondo(config ?? { saldo_inicial: 0, fecha_inicial: null }, movs, pagosOp),
     [config, movs, pagosOp]
   );
+  const porSocio = useMemo(
+    () =>
+      saldoPorSocio(
+        config ?? { saldo_inicial: 0, fecha_inicial: null },
+        movs,
+        pagosOp,
+        traspasos,
+        socios.map((s) => s.user_id)
+      ),
+    [config, movs, pagosOp, traspasos, socios]
+  );
+  const esperanTr = useMemo(
+    () => traspasos.filter((t) => estadoTraspaso(t) === "Por aprobar" && t.creado_por !== uid),
+    [traspasos, uid]
+  );
   const cuentas = useMemo(
     () => cuentaSocios(movs, socios.map((s) => s.user_id)),
     [movs, socios]
@@ -143,7 +173,7 @@ export default function FondoPage() {
   const esperan = useMemo(() => movs.filter((m) => necesitaMiAccion(m, uid)), [movs, uid]);
 
   // Movimientos y pagos a operadores en una sola lista, del más nuevo al más viejo.
-  type Fila = { clave: string; fecha: string; mov?: FondoMov; pago?: PagoOpFila };
+  type Fila = { clave: string; fecha: string; mov?: FondoMov; pago?: PagoOpFila; traspaso?: Traspaso };
   const filas = useMemo(() => {
     const lista: Fila[] = movs
       .filter((m) =>
@@ -155,18 +185,29 @@ export default function FondoPage() {
         if (iniciado && !p.fuera_del_fondo && p.fecha_pago >= (config?.fecha_inicial ?? ""))
           lista.push({ clave: `p-${p.id}`, fecha: p.fecha_pago, pago: p });
     }
+    for (const t of traspasos) {
+      const e = estadoTraspaso(t);
+      if (filtro === "todos" || (filtro === "Por aprobar" && e === "Por aprobar") || (filtro === "Pagado" && e === "Aprobado") || (filtro === "Rechazado" && e === "Rechazado"))
+        lista.push({ clave: `t-${t.id}`, fecha: t.fecha, traspaso: t });
+    }
     return lista.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0)).slice(0, 150);
-  }, [movs, pagosOp, filtro, iniciado, config]);
+  }, [movs, pagosOp, traspasos, filtro, iniciado, config]);
 
   async function guardarInicio() {
     setMsg("");
-    const n = aNumero(saldoIni);
-    if (n == null || n < 0) return setMsg("Escribe el saldo con que empieza el fondo, por ejemplo 250000.");
+    const mapa: Record<string, number> = {};
+    for (const s of socios) {
+      const t = (saldosIni[s.user_id] ?? "").trim();
+      const n = t === "" ? 0 : aNumero(t);
+      if (n == null || n < 0) return setMsg(`Revisa el saldo del fondo de ${s.nombre}, por ejemplo 250000.`);
+      mapa[s.user_id] = n;
+    }
+    const total = Object.values(mapa).reduce((a, b) => a + b, 0);
     if (!fechaIni) return setMsg("Falta la fecha desde la que cuenta el fondo.");
     setGuardando(true);
     const { error: err } = await createClient()
       .from("fondo_config")
-      .update({ saldo_inicial: n, fecha_inicial: fechaIni })
+      .update({ saldo_inicial: total, saldos_socios: mapa, fecha_inicial: fechaIni })
       .eq("id", true);
     setGuardando(false);
     if (err) return setMsg(`No se pudo guardar: ${err.message}`);
@@ -303,9 +344,10 @@ export default function FondoPage() {
             Pon cuánto dinero hay hoy en la cuenta de la sociedad y desde qué fecha SmartCat empieza a contar.
           </div>
           <FormInicio
-            saldoIni={saldoIni}
+            socios={socios}
+            saldos={saldosIni}
+            setSaldo={(id, v) => setSaldosIni((x) => ({ ...x, [id]: v }))}
             fechaIni={fechaIni}
-            setSaldoIni={setSaldoIni}
             setFechaIni={setFechaIni}
             guardar={guardarInicio}
             guardando={guardando}
@@ -322,6 +364,40 @@ export default function FondoPage() {
               </div>
               {saldo.porPagar > 0 && <div className="total-c">Hay {rd(saldo.porPagar)} aprobado por pagar.</div>}
             </div>
+            <div className="grid2" style={{ marginBottom: 8 }}>
+              {porSocio.socios.map((f) => {
+                const salio = f.salidas + f.operadores;
+                const traspaso = f.traspasoRecibido - f.traspasoEnviado;
+                const partes = [
+                  `Empezó con ${rd(f.inicial)}`,
+                  f.entradas > 0 ? `entró ${rd(f.entradas)}` : null,
+                  salio > 0 ? `salió ${rd(salio)}` : null,
+                  traspaso !== 0 ? `traspasos ${traspaso > 0 ? "+" : "−"}${rd(Math.abs(traspaso))}` : null,
+                ].filter(Boolean);
+                return (
+                  <div className="resumen" key={f.socio_id} style={{ textAlign: "center", margin: 0 }}>
+                    <div className="total-n">Fondo de {nombreDe(f.socio_id)}</div>
+                    <div className="total-h" style={{ fontSize: 24, color: f.saldo < 0 ? "var(--danger)" : undefined }}>
+                      {rd(f.saldo)}
+                    </div>
+                    <div className="total-c">{partes.join(" · ")}</div>
+                    {f.porPagar > 0 && <div className="total-c">{rd(f.porPagar)} aprobado por pagar</div>}
+                    {f.saldo < 0 && <div className="aviso">Este fondo se pasó de lo que tenía.</div>}
+                  </div>
+                );
+              })}
+            </div>
+            {porSocio.sinAsignar !== 0 && (
+              <div className="alerta" style={{ marginBottom: 8 }}>
+                Hay {rd(Math.abs(porSocio.sinAsignar))} {porSocio.sinAsignar > 0 ? "a favor" : "en contra"} que no está en
+                el fondo de ningún socio. Revisa los movimientos viejos o el saldo con que empezó cada fondo.
+              </div>
+            )}
+            <div className="actions" style={{ marginBottom: 12 }}>
+              <button className="btn grow" onClick={() => setEditandoTr(null)}>
+                Pasar dinero entre fondos
+              </button>
+            </div>
             <div className="totales">
               <div className="total">
                 <div className="total-n">Saldo inicial</div>
@@ -329,7 +405,9 @@ export default function FondoPage() {
                 <div className="total-c">
                   desde {config?.fecha_inicial ? fmtFecha(config.fecha_inicial) : ""}{" "}
                   <button type="button" className="btn small" onClick={() => {
-                    setSaldoIni(String(config?.saldo_inicial ?? ""));
+                    setSaldosIni(
+                      Object.fromEntries(socios.map((s) => [s.user_id, String(config?.saldos_socios?.[s.user_id] ?? "")]))
+                    );
                     setFechaIni(config?.fecha_inicial ?? hoyRD());
                     setEditandoInicio(true);
                   }}>Cambiar</button>
@@ -353,9 +431,10 @@ export default function FondoPage() {
               <div className="resumen">
                 <b>Cambiar el inicio del fondo</b>
                 <FormInicio
-                  saldoIni={saldoIni}
+                  socios={socios}
+                  saldos={saldosIni}
+                  setSaldo={(id, v) => setSaldosIni((x) => ({ ...x, [id]: v }))}
                   fechaIni={fechaIni}
-                  setSaldoIni={setSaldoIni}
                   setFechaIni={setFechaIni}
                   guardar={guardarInicio}
                   guardando={guardando}
@@ -368,9 +447,12 @@ export default function FondoPage() {
         )
       )}
 
-      {esperan.length > 0 && (
+      {esperan.length + esperanTr.length > 0 && (
         <>
-          <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Esperan tu acción ({esperan.length})</h2>
+          <h2 style={{ fontSize: 18, margin: "0 0 8px" }}>Esperan tu acción ({esperan.length + esperanTr.length})</h2>
+          {esperanTr.map((t) => (
+            <TarjetaTraspaso key={t.id} t={t} nombreDe={nombreDe} onClick={() => setEditandoTr(t)} />
+          ))}
           {esperan.map((m) => (
             <Tarjeta key={m.id} m={m} nombreDe={nombreDe} onClick={() => { setModo(undefined); setEditando(m); }} />
           ))}
@@ -410,7 +492,9 @@ export default function FondoPage() {
             <div className="empty">No hay movimientos todavía. Usa uno de los botones de arriba para anotar el primero.</div>
           ) : (
             filas.map((f) =>
-              f.mov ? (
+              f.traspaso ? (
+                <TarjetaTraspaso key={f.clave} t={f.traspaso} nombreDe={nombreDe} onClick={() => setEditandoTr(f.traspaso!)} />
+              ) : f.mov ? (
                 <Tarjeta key={f.clave} m={f.mov} nombreDe={nombreDe} onClick={() => { setModo(undefined); setEditando(f.mov!); }} />
               ) : (
                 <div key={f.clave} className="card" style={{ cursor: "default" }}>
@@ -418,7 +502,10 @@ export default function FondoPage() {
                     <div>
                       <h2>Pago a {nombreDe(f.pago!.user_id)}</h2>
                       <span className="pill disp">Automático</span>
-                      <div className="line">Operador · {fmtFecha(f.pago!.fecha_pago)}</div>
+                      <div className="line">
+                        Operador · {fmtFecha(f.pago!.fecha_pago)}
+                        {f.pago!.fondo_socio_id ? ` · fondo de ${nombreDe(f.pago!.fondo_socio_id)}` : ""}
+                      </div>
                     </div>
                     <div className="horas" style={{ fontSize: 20 }}>
                       −{rd(f.pago!.neto)}
@@ -653,6 +740,20 @@ export default function FondoPage() {
         </>
       )}
 
+      {editandoTr !== undefined && (
+        <TraspasoEditor
+          key={editandoTr?.id ?? "nuevo"}
+          traspaso={editandoTr}
+          socios={socios}
+          uid={uid}
+          onClose={() => setEditandoTr(undefined)}
+          onSaved={() => {
+            setEditandoTr(undefined);
+            cargar();
+          }}
+        />
+      )}
+
       {editando !== undefined && (
         <FondoEditor
           key={editando?.id ?? "nuevo"}
@@ -672,6 +773,36 @@ export default function FondoPage() {
   );
 }
 
+function TarjetaTraspaso({
+  t,
+  nombreDe,
+  onClick,
+}: {
+  t: Traspaso;
+  nombreDe: (id: string | null) => string;
+  onClick: () => void;
+}) {
+  const e = estadoTraspaso(t);
+  const clase = e === "Aprobado" ? "pill disp" : e === "Rechazado" ? "pill taller" : "pill obra";
+  return (
+    <button className="card" onClick={onClick}>
+      <div className="row">
+        <div>
+          <h2>Traspaso entre fondos</h2>
+          <span className={clase}>{e}</span>
+          <div className="line">
+            {nombreDe(t.de_socio_id)} → {nombreDe(t.a_socio_id)} · {fmtFecha(t.fecha)}
+            {t.nota ? ` · ${t.nota}` : ""}
+          </div>
+        </div>
+        <div className="horas" style={{ fontSize: 20 }}>
+          {fmtMonto(t.monto, "DOP")}
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function Tarjeta({
   m,
   nombreDe,
@@ -688,6 +819,7 @@ function Tarjeta({
     fmtFecha(m.fecha),
     m.socio_id ? nombreDe(m.socio_id) : null,
     m.origen === "Bolsillo" ? "de su bolsillo" : null,
+    m.origen === "Fondo" && m.fondo_socio_id && m.fondo_socio_id !== m.socio_id ? `fondo de ${nombreDe(m.fondo_socio_id)}` : null,
     m.descripcion,
   ].filter(Boolean);
   return (
@@ -716,18 +848,20 @@ function Tarjeta({
 }
 
 function FormInicio({
-  saldoIni,
+  socios,
+  saldos,
+  setSaldo,
   fechaIni,
-  setSaldoIni,
   setFechaIni,
   guardar,
   guardando,
   msg,
   cancelar,
 }: {
-  saldoIni: string;
+  socios: Socio[];
+  saldos: Record<string, string>;
+  setSaldo: (id: string, v: string) => void;
   fechaIni: string;
-  setSaldoIni: (v: string) => void;
   setFechaIni: (v: string) => void;
   guardar: () => void;
   guardando: boolean;
@@ -737,14 +871,29 @@ function FormInicio({
   return (
     <>
       <div className="grid2" style={{ marginTop: 8 }}>
-        <div className="field">
-          <label htmlFor="fi-saldo">Saldo hoy (RD$)</label>
-          <input id="fi-saldo" inputMode="decimal" value={saldoIni} onChange={(e) => setSaldoIni(e.target.value)} />
-        </div>
+        {socios.map((s) => (
+          <div className="field" key={s.user_id}>
+            <label htmlFor={`fi-saldo-${s.user_id}`}>Fondo de {s.nombre} hoy (RD$)</label>
+            <input
+              id={`fi-saldo-${s.user_id}`}
+              inputMode="decimal"
+              value={saldos[s.user_id] ?? ""}
+              onChange={(e) => setSaldo(s.user_id, e.target.value)}
+            />
+          </div>
+        ))}
         <div className="field">
           <label htmlFor="fi-fecha">Cuenta desde</label>
           <input id="fi-fecha" type="date" value={fechaIni} onChange={(e) => setFechaIni(e.target.value)} />
         </div>
+      </div>
+      <div className="hint">
+        El saldo total del Fondo es la suma de los dos fondos:{" "}
+        {fmtMonto(
+          socios.reduce((t, s) => t + (aNumero(saldos[s.user_id] ?? "") ?? 0), 0),
+          "DOP"
+        )}
+        .
       </div>
       {msg && <div className="error">{msg}</div>}
       <div className="actions">

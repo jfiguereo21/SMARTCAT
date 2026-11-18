@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { aNumero, fmtMonto, hoyRD, type Machine } from "@/lib/machines";
 import { fmtFecha } from "@/lib/conduces";
 import { subirFoto, useFotoUrl } from "@/lib/fotos";
+import SelectorFondo from "@/components/SelectorFondo";
 import {
   CAT_APORTE,
   CAT_REPARTO,
@@ -46,6 +47,10 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
   const [origen, setOrigen] = useState<OrigenMov>(mov?.origen ?? (atajo === "bolsillo" ? "Bolsillo" : "Fondo"));
   const [socioId, setSocioId] = useState(mov?.socio_id ?? (atajo === "aporte" || atajo === "bolsillo" ? uid : ""));
   const [descripcion, setDescripcion] = useState(mov?.descripcion ?? "");
+  // Fondo (del socio) del que sale el dinero, o al que entra si se edita una entrada.
+  const [fondoId, setFondoId] = useState(mov?.fondo_socio_id ?? (mov === null ? uid : ""));
+  // Entrada nueva (no aporte): cuánto le toca a cada fondo.
+  const [partes, setPartes] = useState<Record<string, string>>({});
   const [archivo, setArchivo] = useState<File | null>(null);
   const [yaPagado, setYaPagado] = useState(atajo === "aporte");
   const [motivo, setMotivo] = useState("");
@@ -66,6 +71,12 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
   const flujoFondo = !atajo || atajo === "gasto" || atajo === "reparto";
   const pideSocio = origen === "Bolsillo" || CATEGORIAS_CON_SOCIO.includes(categoria);
   const mNum = aNumero(monto);
+  const esAporte = tipo === "Entrada" && categoria === CAT_APORTE;
+  const saleDelFondo = tipo === "Salida" && origen === "Fondo";
+  const entraCobro = tipo === "Entrada" && !esAporte;
+  const dividir = nuevo && entraCobro; // una entrada nueva se reparte entre los fondos
+  const sumaPartes = socios.reduce((t, s) => t + (aNumero(partes[s.user_id] ?? "") ?? 0), 0);
+  const faltaRepartir = mNum != null ? Math.round((mNum - sumaPartes) * 100) / 100 : 0;
 
   function cambiarTipo(t: TipoMov) {
     setTipo(t);
@@ -79,6 +90,12 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
     if (!categoria) return "Escoge la categoría.";
     if (pideSocio && !socioId)
       return origen === "Bolsillo" ? "Di qué socio pagó de su bolsillo." : "Escoge el socio.";
+    if (saleDelFondo && !fondoId) return "Escoge de qué fondo sale el dinero.";
+    if (entraCobro && !nuevo && !fondoId) return "Escoge a qué fondo entra el dinero.";
+    if (dividir && Math.abs(faltaRepartir) > 0.005)
+      return faltaRepartir > 0
+        ? `Falta repartir ${fmtMonto(faltaRepartir, "DOP")} entre los fondos.`
+        : `Repartiste ${fmtMonto(-faltaRepartir, "DOP")} de más entre los fondos.`;
     return null;
   }
 
@@ -92,6 +109,8 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
       origen: tipo === "Entrada" ? "Fondo" : origen,
       socio_id: pideSocio ? socioId : null,
       descripcion: descripcion.trim() || null,
+      // De qué fondo es: el aporte va al fondo de quien aporta; el gasto sale del fondo escogido.
+      fondo_socio_id: tipo === "Entrada" ? (esAporte ? socioId : fondoId || null) : origen === "Fondo" ? fondoId : null,
     };
   }
 
@@ -113,11 +132,16 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
       const supabase = createClient();
       const ruta = archivo ? await subirFoto(archivo, uid, "fondo") : (mov?.comprobante_path ?? null);
       if (nuevo) {
-        const { error: err } = await supabase.from("fondo_movimientos").insert({
-          ...datosContenido(),
-          comprobante_path: ruta,
-          ...(pagadoAlCrear ? { pagado_en: new Date().toISOString() } : {}),
-        });
+        const base = datosContenido();
+        const extra = { comprobante_path: ruta, ...(pagadoAlCrear ? { pagado_en: new Date().toISOString() } : {}) };
+        // Una entrada de dinero se anota una vez por cada fondo que recibe una parte.
+        const filas = dividir
+          ? socios
+              .map((s) => ({ s, parte: aNumero(partes[s.user_id] ?? "") ?? 0 }))
+              .filter((x) => x.parte > 0)
+              .map((x) => ({ ...base, monto: x.parte, fondo_socio_id: x.s.user_id, ...extra }))
+          : [{ ...base, ...extra }];
+        const { error: err } = await supabase.from("fondo_movimientos").insert(filas);
         if (err) throw new Error(err.message);
       } else {
         const { error: err } = await supabase
@@ -303,6 +327,43 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {atajo === "aporte" && socioId && (
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Este dinero entra al fondo de {nombreDe(socioId)}.
+          </div>
+        )}
+        {saleDelFondo && <SelectorFondo id="fm-fondo" value={fondoId} onChange={setFondoId} socios={socios} />}
+        {entraCobro && !nuevo && (
+          <SelectorFondo id="fm-fondo" value={fondoId} onChange={setFondoId} socios={socios} etiqueta="¿A qué fondo entra?" />
+        )}
+        {dividir && (
+          <div className="field">
+            <label>¿Cuánto le toca a cada fondo?</label>
+            {socios.map((s) => (
+              <div className="row" key={s.user_id} style={{ gap: 8, marginTop: 6 }}>
+                <span>Fondo de {s.nombre}</span>
+                <input
+                  aria-label={`Monto para el fondo de ${s.nombre}`}
+                  inputMode="decimal"
+                  placeholder="0"
+                  style={{ maxWidth: 140 }}
+                  value={partes[s.user_id] ?? ""}
+                  onChange={(e) => setPartes((x) => ({ ...x, [s.user_id]: e.target.value }))}
+                />
+              </div>
+            ))}
+            <div className="hint">
+              {mNum == null
+                ? "Escribe primero el monto total."
+                : Math.abs(faltaRepartir) <= 0.005
+                  ? "Todo repartido."
+                  : faltaRepartir > 0
+                    ? `Falta repartir ${fmtMonto(faltaRepartir, "DOP")}.`
+                    : `Repartiste ${fmtMonto(-faltaRepartir, "DOP")} de más.`}
+            </div>
           </div>
         )}
 

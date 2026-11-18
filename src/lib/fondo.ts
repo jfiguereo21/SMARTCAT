@@ -30,10 +30,11 @@ export type FondoMov = {
   pagado_por: string | null;
   pagado_en: string | null;
   cierre_id: string | null;
+  fondo_socio_id: string | null; // fondo del socio al que entra / del que sale (solo origen Fondo)
   machines?: { nombre: string } | null;
 };
 
-export type FondoConfig = { saldo_inicial: number; fecha_inicial: string | null };
+export type FondoConfig = { saldo_inicial: number; fecha_inicial: string | null; saldos_socios?: Record<string, number> };
 
 export const CAT_APORTE = "Aporte de socio";
 export const CAT_REEMBOLSO = "Reembolso a socio";
@@ -73,7 +74,7 @@ export function necesitaMiAccion(m: FondoMov, uid: string): boolean {
   return false;
 }
 
-export type PagoOp = { fecha_pago: string; neto: number; fuera_del_fondo?: boolean };
+export type PagoOp = { fecha_pago: string; neto: number; fuera_del_fondo?: boolean; fondo_socio_id?: string | null };
 
 export type SaldoFondo = {
   inicial: number;
@@ -207,4 +208,129 @@ export function estadoCierre(movs: FondoMov[], socioId: string): EstadoCierre {
     puedeCerrar: motivo === "",
     motivo,
   };
+}
+
+// --- Fondo de cada socio ---
+// El dinero del Fondo está repartido en la parte de cada socio. Cada gasto, pago a operador o reparto sale de la parte
+// de uno; cada entrada dice cuánto le toca a cada parte; y un socio le puede pasar dinero a otro (traspaso).
+// La suma de las partes (más lo "sin asignar", que debería ser 0) es siempre el saldo total del Fondo.
+
+export type Traspaso = {
+  id: string;
+  fecha: string;
+  de_socio_id: string;
+  a_socio_id: string;
+  monto: number;
+  nota: string | null;
+  creado_por: string;
+  created_at: string;
+  aprobado_por: string | null;
+  aprobado_en: string | null;
+  rechazado_por: string | null;
+  rechazado_en: string | null;
+  motivo_rechazo: string | null;
+};
+
+export type EstadoTraspaso = "Por aprobar" | "Aprobado" | "Rechazado";
+
+export function estadoTraspaso(t: Traspaso): EstadoTraspaso {
+  if (t.rechazado_en) return "Rechazado";
+  if (t.aprobado_en) return "Aprobado";
+  return "Por aprobar";
+}
+
+export type FondoDeSocio = {
+  socio_id: string;
+  inicial: number;
+  entradas: number;
+  salidas: number;
+  operadores: number;
+  traspasoRecibido: number;
+  traspasoEnviado: number;
+  saldo: number;
+  porPagar: number; // salidas aprobadas de su fondo que todavía no se pagan
+};
+
+export type SaldosPorSocio = {
+  socios: FondoDeSocio[];
+  sinAsignar: number; // movimientos viejos o pagos que no dicen de qué fondo son (debería ser 0)
+  total: number; // suma de todo: debe ser igual a saldoFondo().saldo
+};
+
+export function saldoPorSocio(
+  config: FondoConfig,
+  movs: FondoMov[],
+  pagosOp: PagoOp[],
+  traspasos: Traspaso[],
+  socioIds: string[]
+): SaldosPorSocio {
+  const desde = config.fecha_inicial;
+  const cuenta = (fecha: string) => desde != null && fecha >= desde;
+  const iniciales = config.saldos_socios ?? {};
+  const mapa = new Map<string, FondoDeSocio>();
+  for (const id of socioIds)
+    mapa.set(id, {
+      socio_id: id,
+      inicial: iniciales[id] ?? 0,
+      entradas: 0,
+      salidas: 0,
+      operadores: 0,
+      traspasoRecibido: 0,
+      traspasoEnviado: 0,
+      saldo: 0,
+      porPagar: 0,
+    });
+  const sumaIniciales = socioIds.reduce((t, id) => t + (iniciales[id] ?? 0), 0);
+  let sinAsignar = config.saldo_inicial - sumaIniciales;
+
+  const fondoDe = (m: FondoMov): string | null =>
+    m.fondo_socio_id ?? (m.tipo === "Entrada" && m.categoria === CAT_APORTE ? m.socio_id : null);
+
+  for (const m of movs) {
+    if (m.origen !== "Fondo" || m.rechazado_en) continue;
+    const f = fondoDe(m);
+    const c = f ? mapa.get(f) : undefined;
+    if (m.pagado_en) {
+      if (!cuenta(m.fecha)) continue;
+      const signo = m.tipo === "Entrada" ? 1 : -1;
+      if (c) {
+        if (m.tipo === "Entrada") c.entradas += m.monto;
+        else c.salidas += m.monto;
+      } else sinAsignar += signo * m.monto;
+    } else if (m.tipo === "Salida" && m.aprobado_en && c) {
+      c.porPagar += m.monto;
+    }
+  }
+  for (const p of pagosOp) {
+    if (p.fuera_del_fondo || !cuenta(p.fecha_pago)) continue;
+    const c = p.fondo_socio_id ? mapa.get(p.fondo_socio_id) : undefined;
+    if (c) c.operadores += p.neto;
+    else sinAsignar -= p.neto;
+  }
+  for (const t of traspasos) {
+    if (!t.aprobado_en || t.rechazado_en || !cuenta(t.fecha)) continue;
+    const de = mapa.get(t.de_socio_id);
+    const a = mapa.get(t.a_socio_id);
+    if (de) de.traspasoEnviado += t.monto;
+    if (a) a.traspasoRecibido += t.monto;
+  }
+
+  const socios = [...mapa.values()].map((c) => {
+    const r = {
+      ...c,
+      inicial: redondear2(c.inicial),
+      entradas: redondear2(c.entradas),
+      salidas: redondear2(c.salidas),
+      operadores: redondear2(c.operadores),
+      traspasoRecibido: redondear2(c.traspasoRecibido),
+      traspasoEnviado: redondear2(c.traspasoEnviado),
+      porPagar: redondear2(c.porPagar),
+    };
+    return {
+      ...r,
+      saldo: redondear2(r.inicial + r.entradas - r.salidas - r.operadores + r.traspasoRecibido - r.traspasoEnviado),
+    };
+  });
+  const sa = redondear2(sinAsignar);
+  return { socios, sinAsignar: sa, total: redondear2(socios.reduce((t, s) => t + s.saldo, 0) + sa) };
 }

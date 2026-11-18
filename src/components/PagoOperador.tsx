@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { aNumero, fmtMonto, fmtNum, hoyRD } from "@/lib/machines";
 import { CampoVoucher, VoucherDePago, subirVoucher } from "@/components/VoucherPago";
+import SelectorFondo from "@/components/SelectorFondo";
+import { useSociosFondo } from "@/lib/useSociosFondo";
 import {
   calcularDias,
   etiquetaTipo,
@@ -217,6 +219,9 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
   const [nota, setNota] = useState("");
   const [voucher, setVoucher] = useState<File | null>(null);
   const [fuera, setFuera] = useState(false);
+  const { socios, uid } = useSociosFondo();
+  const [fondoElegido, setFondoElegido] = useState("");
+  const fondoId = fondoElegido || uid;
   const [descViejo, setDescViejo] = useState("");
   const [editDia, setEditDia] = useState<DiaPago | null>(null);
   const [error, setError] = useState("");
@@ -271,6 +276,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
       return setError("Escribe el descuento de cuentas viejas con números, o déjalo vacío.");
     if (descV > 0 && nota.trim() === "") return setError("Escribe en la nota por qué se descontó, por ejemplo: préstamo anterior.");
     if (totalDesc > tot.bruto) return setError("Los descuentos no pueden ser más de lo que gana en la quincena.");
+    if (!fuera && !fondoId) return setError("Escoge de qué fondo sale el pago, o marca que se pagó con dinero de afuera.");
 
     setGuardando(true);
     const supabase = createClient();
@@ -298,6 +304,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         nota: nota.trim() || null,
         voucher_path: voucherPath,
         fuera_del_fondo: fuera,
+        fondo_socio_id: fuera ? null : fondoId,
         creado_por: await idAdmin(),
       })
       .select("id")
@@ -439,6 +446,9 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
             Se le pagó: <b>{dinero(pago.neto)}</b>
           </div>
           {pago.nota && <div>{pago.nota}</div>}
+          {!pago.fuera_del_fondo && pago.fondo_socio_id && (
+            <div>Salió del fondo de {socios.find((s) => s.user_id === pago.fondo_socio_id)?.nombre ?? "un socio"}</div>
+          )}
           <VoucherDePago
             pagoId={pago.id}
             operadorId={perfil.user_id}
@@ -500,6 +510,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
             <input type="checkbox" checked={fuera} onChange={(e) => setFuera(e.target.checked)} />
             Ya se pagó con dinero de afuera del Fondo (no baja el saldo del Fondo)
           </label>
+          {!fuera && <SelectorFondo id="qp-fondo" value={fondoId} onChange={setFondoElegido} socios={socios} />}
           <div className="actions">
             <button
               className="btn primary grow"
@@ -543,6 +554,9 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
   const [valores, setValores] = useState<Record<string, { dieta: string; comb: string }>>({});
   const [vouchers, setVouchers] = useState<Record<string, File | null>>({});
   const [fueras, setFueras] = useState<Record<string, boolean>>({});
+  const { socios, uid } = useSociosFondo();
+  const [fondosSem, setFondosSem] = useState<Record<string, string>>({});
+  const fondoDe = (l: string) => fondosSem[l] ?? uid;
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
@@ -572,6 +586,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
     const comb = v ? aNumero(v.comb) : sugerido.combustible;
     if (dieta == null || dieta < 0 || comb == null || comb < 0) return setError("Escribe la dieta y el combustible (puede ser 0).");
     const s = semanaPagadaEl(l);
+    if (!fueras[l] && !fondoDe(l)) return setError("Escoge de qué fondo sale el pago, o marca que se pagó con dinero de afuera.");
     setGuardando(true);
     const supabase = createClient();
     let voucherPath: string | null = null;
@@ -594,6 +609,7 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
       combustible: comb,
       voucher_path: voucherPath,
       fuera_del_fondo: !!fueras[l],
+      fondo_socio_id: fueras[l] ? null : fondoDe(l),
       creado_por: await idAdmin(),
     });
     setGuardando(false);
@@ -659,6 +675,11 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
                 <div className="line">
                   Dieta {dinero(p.dieta)} + combustible {dinero(p.combustible)} = <b>{dinero(p.dieta + p.combustible)}</b>
                 </div>
+                {!p.fuera_del_fondo && p.fondo_socio_id && (
+                  <div className="line">
+                    Salió del fondo de {socios.find((x) => x.user_id === p.fondo_socio_id)?.nombre ?? "un socio"}
+                  </div>
+                )}
                 <VoucherDePago
                   pagoId={p.id}
                   operadorId={perfil.user_id}
@@ -705,6 +726,14 @@ function VistaSemana({ d, onChanged }: { d: DatosOperador; onChanged: () => void
                   />
                   Ya se pagó con dinero de afuera del Fondo
                 </label>
+                {!fueras[l] && (
+                  <SelectorFondo
+                    id={`sf-${l}`}
+                    value={fondoDe(l)}
+                    onChange={(v) => setFondosSem((x) => ({ ...x, [l]: v }))}
+                    socios={socios}
+                  />
+                )}
                 <div className="actions">
                   <button
                     className="btn small primary"

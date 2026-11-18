@@ -452,6 +452,7 @@ export type PagoRow = {
   nota: string | null;
   voucher_path: string | null; // foto del voucher que sube el administrador
   fuera_del_fondo?: boolean; // se pagó con dinero de fuera del Fondo: no baja su saldo
+  fondo_socio_id?: string | null; // fondo del socio del que salió el pago
 };
 
 export type DescuentoRow = {
@@ -498,6 +499,8 @@ export const aPagoRow = (x: Record<string, unknown>): PagoRow => ({
   neto: Number(x.neto),
   nota: (x.nota as string | null) ?? null,
   voucher_path: (x.voucher_path as string | null) ?? null,
+  fuera_del_fondo: x.fuera_del_fondo === true,
+  fondo_socio_id: (x.fondo_socio_id as string | null) ?? null,
 });
 
 export const aDeudaRow = (x: Record<string, unknown>): DeudaRow => ({
