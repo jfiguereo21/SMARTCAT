@@ -243,7 +243,12 @@ export default function CortePage() {
               );
             })}
           <div className="hint">
-            Estas horas no se cobran por hora. La ganancia de cada piscina está en <Link href="/trabajos">Trabajos</Link>.
+            Estas horas no se cobran por hora. La ganancia de cada piscina está en <Link
+              href="/trabajos"
+              style={{ color: "#ea580c", fontWeight: 800, fontSize: 18, textDecoration: "underline" }}
+            >
+              Trabajos
+            </Link>.
           </div>
         </div>
       )}
