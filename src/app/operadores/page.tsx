@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import HorasPorDia from "@/components/HorasPorDia";
 import { createClient } from "@/lib/supabase/client";
 import Nav from "@/components/Nav";
 import { aNumero, fmtMonto, fmtNum, hoyRD, type Machine } from "@/lib/machines";
@@ -268,7 +269,7 @@ export default function OperadoresPage() {
   const [perfiles, setPerfiles] = useState<Perfil[]>([]);
   const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
   const [maquinas, setMaquinas] = useState<Machine[]>([]);
-  const [conduces, setConduces] = useState<Pick<Conduce, "creado_por" | "fecha" | "estado" | "horas_cobrables">[]>([]);
+  const [conduces, setConduces] = useState<Pick<Conduce, "creado_por" | "fecha" | "estado" | "horas_cobrables" | "tramos">[]>([]);
   // Datos para calcular lo que se le paga a cada operador (las mismas reglas de la pantalla Pagos)
   const [pagoDatos, setPagoDatos] = useState<{
     feriados: Record<string, string>;
@@ -293,7 +294,7 @@ export default function OperadoresPage() {
         .order("nombre"),
       supabase.from("operador_maquinas").select("user_id, machine_id"),
       supabase.from("machines").select("*").order("nombre"),
-      supabase.from("conduces").select("creado_por, fecha, estado, horas_cobrables"),
+      supabase.from("conduces").select("creado_por, fecha, estado, horas_cobrables, tramos"),
       supabase.from("feriados").select("fecha, nombre"),
       supabase.from("dias_operador").select("*"),
       supabase.from("reportes_dia").select("*"),
@@ -409,7 +410,8 @@ export default function OperadoresPage() {
         const h = horasDe.get(o.user_id);
         const pend = pendienteDe(o);
         return (
-          <button key={o.user_id} className="card" onClick={() => setEditando(o)}>
+          <div key={o.user_id}>
+          <button className="card" onClick={() => setEditando(o)}>
             <div className="row">
               <div>
                 <h2>{o.nombre || "Sin nombre"}</h2>
@@ -431,6 +433,17 @@ export default function OperadoresPage() {
               {h && h.rechazadas > 0 ? ` · ${fmtNum(h.rechazadas, 2)} h rechazadas` : ""}
             </div>
           </button>
+          <HorasPorDia
+            perfil={aPerfilPago(o as unknown as Record<string, unknown>)}
+            conduces={conduces.filter((c) => c.creado_por === o.user_id)}
+            feriados={pagoDatos.feriados}
+            ajustes={pagoDatos.ajustes.filter((x) => x.user_id === o.user_id)}
+            reportes={pagoDatos.reportes.filter((x) => x.user_id === o.user_id)}
+            tratos={pagoDatos.tratos.filter((t) => t.user_id === o.user_id)}
+            pagos={pagoDatos.pagos.filter((x) => x.user_id === o.user_id)}
+            hoy={hoy}
+          />
+          </div>
         );
       })}
 
