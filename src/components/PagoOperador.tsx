@@ -241,6 +241,7 @@ function VistaQuincena({ d, onChanged }: { d: DatosOperador; onChanged: () => vo
         fin: q.fin,
         pagaDesde: perfil.paga_desde,
         hoy,
+        incluirHoy: true,
         conduces: d.conduces,
         feriados: d.feriados,
         ajustes: ajustesMapa,

@@ -132,7 +132,8 @@ export type TipoDia =
   | "doble" // domingo o festivo con conduce: el doble
   | "no_paga" // domingo o festivo sin conduce
   | "ajuste" // el administrador cambió las horas
-  | "pendiente"; // solo hay conduces sin aprobar: no se cuenta todavía
+  | "pendiente" // solo hay conduces sin aprobar: no se cuenta todavía
+  | "hoy"; // el día de hoy sin conduce ni reporte: 0 horas, el administrador puede tocarlo para ponerle horas
 
 export type DiaPago = {
   fueAlCampo: boolean; // cobra dieta y combustible ese día
@@ -252,6 +253,7 @@ export type EntradaDias = {
   fin: string;
   pagaDesde: string | null; // antes de esta fecha no se paga nada
   hoy: string; // los días que no han terminado no cuentan
+  incluirHoy?: boolean; // solo para la lista del administrador: muestra el día de hoy sin conduce (0 horas) para poder tocarlo
   conduces: ConduceDia[];
   feriados: Record<string, string>; // fecha -> nombre
   ajustes: Record<string, AjusteDia>; // fecha -> ajuste
@@ -319,6 +321,8 @@ export function calcularDias(e: EntradaDias): DiaPago[] {
     } else if (fecha < e.hoy) {
       // El día de hoy sin conduce todavía no cuenta: el operador reporta al final del día.
       dias.push({ ...base, tipo: "sin_conduce", horasPagadas: t.horas_sin_conduce, nota: null, fueAlCampo: false });
+    } else if (e.incluirHoy) {
+      dias.push({ ...base, tipo: "hoy", horasPagadas: 0, nota: null, fueAlCampo: false });
     }
   }
   return dias;
@@ -538,6 +542,7 @@ export const etiquetaTipo: Record<TipoDia, string> = {
   no_paga: "No se paga",
   ajuste: "Ajustado",
   pendiente: "Por aprobar",
+  hoy: "Hoy todavía no termina. Si ya sabes que no va a trabajar, tócalo para ponerle horas",
 };
 
 // Explicación de un día en palabras sencillas, para que el operador entienda qué se le paga y por qué.
@@ -583,6 +588,11 @@ export function explicarDia(d: DiaPago): { titulo: string; detalle: string } {
       };
     case "no_paga":
       return { titulo: `No se trabajó (${especial})`, detalle: "Los domingos y festivos sin trabajo no se pagan." };
+    case "hoy":
+      return {
+        titulo: "Hoy todavía no termina",
+        detalle: "Si hoy hay conduce o reporte, se suma cuando se apruebe.",
+      };
     case "pendiente":
       return {
         titulo: "Esperando aprobación",
