@@ -36,7 +36,7 @@ type DatosTarjeta = Pick<
   GananciaMaquina,
   | "horas" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar"
   | "costo" | "ganancia" | "porcentaje" | "cuota" | "cuotaNota" | "tienePrestamo" | "gananciaFinal" | "porcentajeFinal"
-  | "costoCompra" | "pctCosto" | "avisos" | "seguro" | "cuotaRegistrada" | "compraPendiente" | "prestamosSociedad"
+  | "costoCompra" | "pctCosto" | "avisos" | "seguro" | "cuotaRegistrada" | "compraPendiente" | "prestamosSociedad" | "comision" | "comisionPct"
 >;
 
 function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCuota?: () => void }) {
@@ -58,6 +58,9 @@ function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCu
       <Linea texto="Operador: dieta y combustible" valor={m.operadorCampo} />
       <Linea texto="Combustible de la máquina" valor={m.combustible} />
       <Linea texto="Seguro de la máquina (1/12 de la prima)" valor={m.seguro} />
+      {m.comision > 0 && (
+        <Linea texto={m.comisionPct != null && m.comisionPct > 0 ? `Comisión (${fmtNum(m.comisionPct, 2)}% de lo cobrado)` : "Comisión sobre lo cobrado"} valor={m.comision} />
+      )}
       <Linea texto="Pago al dueño de la máquina" valor={m.dueno} />
       {m.prestamosSociedad > 0 && <Linea texto="Cuotas de los préstamos de Francisco" valor={m.prestamosSociedad} />}
       <Linea

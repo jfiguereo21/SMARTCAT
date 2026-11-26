@@ -29,6 +29,7 @@ export default function AcuerdoEditor({ acuerdo, maquinas, clientes, acuerdos, o
   const [tarifa, setTarifa] = useState(acuerdo ? String(acuerdo.tarifa) : "");
   const [inicio, setInicio] = useState(acuerdo?.fecha_inicio ?? hoyRD());
   const [fin, setFin] = useState(acuerdo?.fecha_fin ?? "");
+  const [comision, setComision] = useState(acuerdo?.comision_pct ? String(acuerdo.comision_pct) : "");
   const [notas, setNotas] = useState(acuerdo?.notas ?? "");
 
   const [error, setError] = useState("");
@@ -48,6 +49,8 @@ export default function AcuerdoEditor({ acuerdo, maquinas, clientes, acuerdos, o
     if (!machineId) return setError("Escoge la máquina.");
     const t = aNumero(tarifa);
     if (t == null || t < 0) return setError("Escribe la tarifa por hora, por ejemplo 48 o 3000.");
+    const com = comision.trim() === "" ? 0 : aNumero(comision);
+    if (com == null || com < 0 || com > 100) return setError("La comisión es un porcentaje entre 0 y 100, por ejemplo 8.");
     if (!inicio) return setError("Falta la fecha en que empieza el acuerdo.");
     if (fin && fin < inicio) return setError("La fecha de fin no puede ser antes de la de inicio.");
 
@@ -97,6 +100,7 @@ export default function AcuerdoEditor({ acuerdo, maquinas, clientes, acuerdos, o
       tarifa: t,
       fecha_inicio: inicio,
       fecha_fin: fin || null,
+      comision_pct: com,
       notas: notas.trim() || null,
     };
     const { error: err } = nuevo
@@ -199,6 +203,12 @@ export default function AcuerdoEditor({ acuerdo, maquinas, clientes, acuerdos, o
         <div className="hint" style={{ marginTop: -6, marginBottom: 12 }}>
           Si lo dejas vacío, el acuerdo sigue vigente. Cuando crees uno nuevo para la misma máquina, el
           anterior se cierra solo el día antes.
+        </div>
+
+        <div className="field">
+          <label htmlFor="a-comision">Comisión (% de lo cobrado, opcional)</label>
+          <input id="a-comision" inputMode="decimal" value={comision} onChange={(e) => setComision(e.target.value)} />
+          <div className="hint">Por ejemplo 8 en Larimar. Se resta como gasto en Ganancia por máquina.</div>
         </div>
 
         <div className="field">

@@ -47,6 +47,8 @@ export type GananciaMaquina = {
   gastos: number; // gastos del Fondo con esta máquina
   gastosPorAprobar: number; // cuánto de los gastos aún no lo aprueba el otro socio (ya está sumado arriba)
   seguro: number; // el seguro de la máquina, un doceavo de la prima por corte
+  comision: number; // comisión sobre lo cobrado (por ejemplo 8% en Larimar)
+  comisionPct: number | null; // el % si es el mismo en todo el corte
   prestamosSociedad: number; // cuotas de préstamos de la sociedad (solo en el total, no en cada máquina)
   costo: number;
   ganancia: number; // ganancia de operar la máquina, antes de la cuota del préstamo
@@ -133,6 +135,8 @@ export function calcularGanancia(e: {
         gastos: 0,
         gastosPorAprobar: 0,
         seguro: 0,
+        comision: 0,
+        comisionPct: null,
         prestamosSociedad: 0,
         costo: 0,
         ganancia: 0,
@@ -167,11 +171,19 @@ export function calcularGanancia(e: {
       const f = fila(m);
       f.horas += l.horas;
       const valor = l.neto ?? l.bruto;
+      const pct = Number(e.acuerdos.find((x) => x.id === l.acuerdoId)?.comision_pct ?? 0);
       if (l.neto == null) aviso(f, "Falta el precio del diésel del día 25 para descontar el combustible del cliente.");
       if (l.moneda === "USD") {
         if (tasa == null) aviso(f, "Falta la tasa del dólar de este corte: lo cobrado en dólares no está contado.");
-        else f.ingreso += valor * tasa;
-      } else f.ingreso += valor;
+        else {
+          f.ingreso += valor * tasa;
+          if (pct > 0) f.comision += valor * tasa * (pct / 100);
+        }
+      } else {
+        f.ingreso += valor;
+        if (pct > 0) f.comision += valor * (pct / 100);
+      }
+      if (pct > 0) f.comisionPct = f.comisionPct == null || f.comisionPct === pct ? pct : -1;
     }
   }
   for (const h of corte.horasSinAcuerdo) {
@@ -297,7 +309,8 @@ export function calcularGanancia(e: {
     f.gastos = redondear2(f.gastos);
     f.gastosPorAprobar = redondear2(f.gastosPorAprobar);
     f.seguro = redondear2(f.seguro);
-    f.costo = redondear2(f.operadorHoras + f.operadorCampo + f.combustible + f.dueno + f.gastos + f.seguro);
+    f.comision = redondear2(f.comision);
+    f.costo = redondear2(f.operadorHoras + f.operadorCampo + f.combustible + f.dueno + f.gastos + f.seguro + f.comision);
     f.ganancia = redondear2(f.ingreso - f.costo);
     f.porcentaje = f.ingreso > 0 ? redondear2((f.ganancia / f.ingreso) * 100) : null;
     f.cuota = redondear2(f.cuota);
@@ -308,7 +321,7 @@ export function calcularGanancia(e: {
       f.pctCosto = costoDop ? redondear2((f.ganancia / costoDop) * 100) : null;
     }
   }
-  const suma = (k: "horas" | "cuota" | "seguro" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar") =>
+  const suma = (k: "horas" | "cuota" | "seguro" | "comision" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar") =>
     redondear2(maquinas.reduce((t, f) => t + f[k], 0));
   const ingreso = suma("ingreso");
   // Cuotas de préstamos de la sociedad (por ejemplo los de Francisco) anotadas en el Fondo sin máquina: son un gasto del total.
@@ -347,6 +360,11 @@ export function calcularGanancia(e: {
       gastos: suma("gastos"),
       gastosPorAprobar: suma("gastosPorAprobar"),
       seguro: suma("seguro"),
+      comision: suma("comision"),
+      comisionPct: (() => {
+        const ps = [...new Set(maquinas.map((f) => f.comisionPct).filter((x): x is number => x != null))];
+        return ps.length === 1 ? ps[0] : ps.length > 1 ? -1 : null;
+      })(),
       prestamosSociedad: prestamosMonto,
       costo,
       ganancia,

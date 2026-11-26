@@ -44,6 +44,7 @@ export type Acuerdo = {
   fecha_inicio: string; // AAAA-MM-DD
   fecha_fin: string | null; // null = sigue vigente
   notas: string | null;
+  comision_pct?: number | null; // % de lo cobrado que se paga de comisión (ej. 8 en Larimar)
   corte_inicial?: string | null; // corte (día 25) donde se cobran los días anteriores a él; null = cada día en su corte
   machines?: { nombre: string } | null;
   clients?: { nombre: string } | null;
