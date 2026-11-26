@@ -9,6 +9,7 @@ import { corteDe } from "./conduces";
 import type { PreciosCorte } from "./combustible";
 import { armarCorte, claveCorte, pagoDuenos, type CargaCorte } from "./corte";
 import { redondear2 } from "./combustible";
+import type { Parte, Trabajo } from "./trabajos";
 import { CAT_PRESTAMO, CAT_REEMBOLSO, CAT_REPARTO } from "./fondo";
 import type { CostoDia } from "./trabajos";
 
@@ -47,6 +48,8 @@ export type GananciaMaquina = {
   gastos: number; // gastos del Fondo con esta máquina
   gastosPorAprobar: number; // cuánto de los gastos aún no lo aprueba el otro socio (ya está sumado arriba)
   seguro: number; // el seguro de la máquina, un doceavo de la prima por corte
+  piscinas: { terminadas: number; total: number; ingreso: number; porCobrar: number } | null; // trabajos a precio cerrado (ya suman en ingreso)
+  cliente: string | null; // cliente principal de la máquina en este corte
   comision: number; // comisión sobre lo cobrado (por ejemplo 8% en Larimar)
   comisionPct: number | null; // el % si es el mismo en todo el corte
   prestamosSociedad: number; // cuotas de préstamos de la sociedad (solo en el total, no en cada máquina)
@@ -65,11 +68,15 @@ export type GananciaMaquina = {
   avisos: string[];
 };
 
+export type TotalGanancia = Omit<GananciaMaquina, "machineId" | "maquina">;
+export type GrupoGanancia = { nombre: string; maquinas: GananciaMaquina[]; total: TotalGanancia };
+
 export type ResultadoGanancia = {
   inicio: string;
   fin: string;
   maquinas: GananciaMaquina[];
-  total: Omit<GananciaMaquina, "machineId" | "maquina" | "avisos"> & { avisos: string[] };
+  total: TotalGanancia;
+  grupos: GrupoGanancia[]; // Inecar por un lado y los demás clientes por otro
   sinMaquina: { operador: number; gastos: number }; // costos que no se pudieron asignar a ninguna máquina
   // Cuotas de préstamos de la sociedad anotadas en el Fondo sin máquina (por ejemplo los préstamos personales de un socio).
   prestamos: { monto: number; cantidad: number; fijo: number; registrado: number };
@@ -113,6 +120,8 @@ export function calcularGanancia(e: {
   operadores: Map<string, Map<string, CostoDia>>; // por operador, por fecha
   fondo: GastoFondo[];
   prestamos?: PrestamoSociedad[];
+  trabajos?: Trabajo[];
+  partes?: Parte[];
 }): ResultadoGanancia {
   const { clave } = e;
   const { inicio, fin } = rangoCorte(clave);
@@ -135,6 +144,8 @@ export function calcularGanancia(e: {
         gastos: 0,
         gastosPorAprobar: 0,
         seguro: 0,
+        piscinas: null,
+        cliente: null,
         comision: 0,
         comisionPct: null,
         prestamosSociedad: 0,
@@ -164,12 +175,16 @@ export function calcularGanancia(e: {
   // --- Lo que entra: igual que Corte ---
   const porHora = e.conduces.filter((c) => !c.parte_id);
   const corte = armarCorte(clave, e.maquinas, porHora, e.cargas, e.acuerdos, e.precio);
+  const horasCliente = new Map<string, Map<string, number>>();
   for (const g of corte.grupos) {
     for (const l of g.lineas) {
       const m = maqDe(l.machineId);
       if (!m) continue;
       const f = fila(m);
       f.horas += l.horas;
+      const hc = horasCliente.get(m.id) ?? new Map<string, number>();
+      hc.set(g.cliente, (hc.get(g.cliente) ?? 0) + l.horas);
+      horasCliente.set(m.id, hc);
       const valor = l.neto ?? l.bruto;
       const pct = Number(e.acuerdos.find((x) => x.id === l.acuerdoId)?.comision_pct ?? 0);
       if (l.neto == null) aviso(f, "Falta el precio del diésel del día 25 para descontar el combustible del cliente.");
@@ -189,6 +204,26 @@ export function calcularGanancia(e: {
   for (const h of corte.horasSinAcuerdo) {
     const m = maqDe(h.machineId);
     if (m) aviso(fila(m), `${h.horas} h sin acuerdo de tarifa: no están cobradas.`);
+  }
+
+  // --- Trabajos a precio cerrado (piscinas): se cobra cada una cuando se termina, en pesos ---
+  for (const t of e.trabajos ?? []) {
+    const m = maqDe(t.machine_id);
+    const delTrabajo = (e.partes ?? []).filter((x) => x.trabajo_id === t.id);
+    if (!m || delTrabajo.length === 0) continue;
+    const terminadasCorte = delTrabajo.filter((x) => x.terminada_en && corteDe(x.terminada_en).clave === clave);
+    const sinTerminar = delTrabajo.filter((x) => !x.terminada_en);
+    if (terminadasCorte.length === 0 && sinTerminar.length === 0) continue;
+    const f = fila(m);
+    const ingresoPart = terminadasCorte.reduce((a, x) => a + x.precio, 0);
+    f.ingreso += ingresoPart;
+    const previo = f.piscinas ?? { terminadas: 0, total: 0, ingreso: 0, porCobrar: 0 };
+    f.piscinas = {
+      terminadas: previo.terminadas + terminadasCorte.length,
+      total: previo.total + delTrabajo.length,
+      ingreso: previo.ingreso + ingresoPart,
+      porCobrar: previo.porCobrar + sinTerminar.reduce((a, x) => a + x.precio, 0),
+    };
   }
 
   // --- Operadores: el costo de cada día va a la máquina donde trabajó ---
@@ -212,7 +247,6 @@ export function calcularGanancia(e: {
         else if (corteDe(fecha).clave === clave) sinMaquina.operador += costo.pago + costo.campo;
       }
       for (const p of partes) {
-        if (p.parteId) continue; // las piscinas se ven en Trabajos
         if (!delCorte(p.machineId, fecha)) continue;
         const m = maqDe(p.machineId);
         if (!m) continue;
@@ -321,9 +355,53 @@ export function calcularGanancia(e: {
       f.pctCosto = costoDop ? redondear2((f.ganancia / costoDop) * 100) : null;
     }
   }
-  const suma = (k: "horas" | "cuota" | "seguro" | "comision" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar") =>
-    redondear2(maquinas.reduce((t, f) => t + f[k], 0));
-  const ingreso = suma("ingreso");
+  // Cliente principal de cada máquina: el que más horas tuvo en el corte; si no hay horas, el de su acuerdo más reciente.
+  for (const f of maquinas) {
+    const hc = horasCliente.get(f.machineId);
+    if (hc && hc.size > 0) f.cliente = [...hc.entries()].sort((x, y) => y[1] - x[1])[0][0];
+    else {
+      const ult = e.acuerdos.filter((x) => x.machine_id === f.machineId).sort((x, y) => (x.fecha_inicio < y.fecha_inicio ? 1 : -1))[0];
+      f.cliente = ult?.clients?.nombre ?? null;
+    }
+  }
+  const sumar = (filas: GananciaMaquina[], prestamos: number, avisosExtra: string[]): TotalGanancia => {
+    const suma = (k: "horas" | "cuota" | "seguro" | "comision" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar") =>
+      redondear2(filas.reduce((t, f) => t + f[k], 0));
+    const ingreso = suma("ingreso");
+    const costo = redondear2(filas.reduce((t, f) => t + f.costo, 0) + prestamos);
+    const ganancia = redondear2(ingreso - costo);
+    const cuota = suma("cuota");
+    const ps = [...new Set(filas.map((f) => f.comisionPct).filter((x): x is number => x != null))];
+    return {
+      horas: suma("horas"),
+      ingreso,
+      operadorHoras: suma("operadorHoras"),
+      operadorCampo: suma("operadorCampo"),
+      combustible: suma("combustible"),
+      dueno: suma("dueno"),
+      gastos: suma("gastos"),
+      gastosPorAprobar: suma("gastosPorAprobar"),
+      seguro: suma("seguro"),
+      piscinas: null,
+      cliente: null,
+      comision: suma("comision"),
+      comisionPct: ps.length === 1 ? ps[0] : ps.length > 1 ? -1 : null,
+      prestamosSociedad: prestamos,
+      costo,
+      ganancia,
+      porcentaje: ingreso > 0 ? redondear2((ganancia / ingreso) * 100) : null,
+      cuota,
+      cuotaNota: null,
+      tienePrestamo: filas.some((f) => f.tienePrestamo),
+      gananciaFinal: redondear2(ganancia - cuota),
+      porcentajeFinal: ingreso > 0 ? redondear2(((ganancia - cuota) / ingreso) * 100) : null,
+      cuotaRegistrada: false,
+      costoCompra: null,
+      compraPendiente: null,
+      pctCosto: null,
+      avisos: [...new Set([...filas.flatMap((f) => f.avisos), ...avisosExtra])],
+    };
+  };
   // Cuotas de préstamos de la sociedad (por ejemplo los de Francisco) anotadas en el Fondo sin máquina: son un gasto del total.
   const prestamosFondo = e.fondo.filter(
     (g) => !g.rechazado && g.tipo === "Salida" && g.categoria === CAT_PRESTAMO && !g.machine_id && g.fecha >= inicio && g.fecha <= fin
@@ -343,43 +421,18 @@ export function calcularGanancia(e: {
   fijo = redondear2(fijo);
   // Si ya se anotaron en el Fondo, no se cuentan dos veces: vale lo mayor entre lo fijo y lo anotado.
   const prestamosMonto = Math.max(fijo, registrado);
-  const costo = redondear2(maquinas.reduce((t, f) => t + f.costo, 0) + prestamosMonto);
-  const ganancia = redondear2(ingreso - costo);
-  const cuotaTotal = suma("cuota");
+  const esInecar = (f: GananciaMaquina) => (f.cliente ?? "").toLowerCase().includes("inecar");
+  const delInecar = maquinas.filter(esInecar);
+  const otros = maquinas.filter((f) => !esInecar(f));
+  const grupos: GrupoGanancia[] = [];
+  if (delInecar.length > 0) grupos.push({ nombre: "Inecar (Larimar)", maquinas: delInecar, total: sumar(delInecar, 0, []) });
+  if (otros.length > 0) grupos.push({ nombre: "Otros clientes", maquinas: otros, total: sumar(otros, 0, []) });
   return {
     inicio,
     fin,
     maquinas,
-    total: {
-      horas: suma("horas"),
-      ingreso,
-      operadorHoras: suma("operadorHoras"),
-      operadorCampo: suma("operadorCampo"),
-      combustible: suma("combustible"),
-      dueno: suma("dueno"),
-      gastos: suma("gastos"),
-      gastosPorAprobar: suma("gastosPorAprobar"),
-      seguro: suma("seguro"),
-      comision: suma("comision"),
-      comisionPct: (() => {
-        const ps = [...new Set(maquinas.map((f) => f.comisionPct).filter((x): x is number => x != null))];
-        return ps.length === 1 ? ps[0] : ps.length > 1 ? -1 : null;
-      })(),
-      prestamosSociedad: prestamosMonto,
-      costo,
-      ganancia,
-      porcentaje: ingreso > 0 ? redondear2((ganancia / ingreso) * 100) : null,
-      cuota: cuotaTotal,
-      cuotaNota: null,
-      tienePrestamo: maquinas.some((f) => f.tienePrestamo),
-      gananciaFinal: redondear2(ganancia - cuotaTotal),
-      porcentajeFinal: ingreso > 0 ? redondear2(((ganancia - cuotaTotal) / ingreso) * 100) : null,
-      cuotaRegistrada: false,
-      costoCompra: null,
-      compraPendiente: null,
-      pctCosto: null,
-      avisos: [...new Set([...maquinas.flatMap((f) => f.avisos), ...avisosPrest])],
-    },
+    total: sumar(maquinas, prestamosMonto, avisosPrest),
+    grupos,
     sinMaquina: { operador: redondear2(sinMaquina.operador), gastos: redondear2(sinMaquina.gastos) },
     prestamos: { monto: prestamosMonto, cantidad: prestamosFondo.length, fijo, registrado },
     tasaDolar: tasa,

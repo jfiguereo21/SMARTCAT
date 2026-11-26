@@ -13,6 +13,7 @@ import type { PreciosCorte } from "@/lib/combustible";
 import type { CargaCorte } from "@/lib/corte";
 import { aAjusteRow, aPerfilPago, aReporteDiaRow, aTratoRow, type PerfilPago } from "@/lib/pagos";
 import { costoDiasOperador, type CostoDia } from "@/lib/trabajos";
+import { aParte, aTrabajo, type Parte, type Trabajo } from "@/lib/trabajos";
 import { calcularGanancia, type ConduceGanancia, type GastoFondo, type GananciaMaquina, type PrestamoSociedad } from "@/lib/ganancia";
 
 const rd = (n: number) => fmtMonto(n, "DOP");
@@ -36,7 +37,7 @@ type DatosTarjeta = Pick<
   GananciaMaquina,
   | "horas" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar"
   | "costo" | "ganancia" | "porcentaje" | "cuota" | "cuotaNota" | "tienePrestamo" | "gananciaFinal" | "porcentajeFinal"
-  | "costoCompra" | "pctCosto" | "avisos" | "seguro" | "cuotaRegistrada" | "compraPendiente" | "prestamosSociedad" | "comision" | "comisionPct"
+  | "costoCompra" | "pctCosto" | "avisos" | "seguro" | "cuotaRegistrada" | "compraPendiente" | "prestamosSociedad" | "comision" | "comisionPct" | "piscinas"
 >;
 
 function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCuota?: () => void }) {
@@ -79,7 +80,7 @@ function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCu
       {m.tienePrestamo && (
         <>
           <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-            <span>− Cuota del préstamo{m.cuotaNota ? ` (${m.cuotaNota})` : " (no cae en este corte)"}</span>
+            <span>− Cuota del préstamo{m.cuotaNota ? ` (${m.cuotaNota})` : m.cuota > 0 ? "" : " (no cae en este corte)"}</span>
             <span>{rd(m.cuota)}</span>
           </div>
           <div className="line" style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, color: colorGanancia(m.gananciaFinal) }}>
@@ -91,6 +92,13 @@ function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCu
             </span>
           </div>
         </>
+      )}
+      {m.piscinas && (
+        <div className="line">
+          Piscinas (precio cerrado): {m.piscinas.terminadas} terminada{m.piscinas.terminadas === 1 ? "" : "s"} en este corte,{" "}
+          {rd(m.piscinas.ingreso)} ya sumados en lo cobrado.
+          {m.piscinas.porCobrar > 0 ? ` Faltan por terminar ${rd(m.piscinas.porCobrar)}.` : ""}
+        </div>
       )}
       {m.tienePrestamo && m.cuota > 0 && onCuota && (
         m.cuotaRegistrada ? (
@@ -130,6 +138,8 @@ export default function GananciaPage() {
   const [operadores, setOperadores] = useState<Map<string, Map<string, CostoDia>>>(new Map());
   const [fondo, setFondo] = useState<GastoFondo[]>([]);
   const [prestamos, setPrestamos] = useState<PrestamoSociedad[]>([]);
+  const [trabajos, setTrabajos] = useState<Trabajo[]>([]);
+  const [partes, setPartes] = useState<Parte[]>([]);
   const [sinFondo, setSinFondo] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -140,13 +150,15 @@ export default function GananciaPage() {
   const cargar = useCallback(async () => {
     const supabase = createClient();
     const hoy = hoyRD();
-    const [m, c, f, a, p, pr, pf, tr, aj, rp, fe, fo] = await Promise.all([
+    const [m, c, f, a, p, pr, tb, tp, pf, tr, aj, rp, fe, fo] = await Promise.all([
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("conduces").select("machine_id, fecha, horas_cobrables, estado, creado_por, parte_id").neq("estado", "Rechazado"),
       supabase.from("fuel_logs").select("machine_id, fecha, galones, origen, estado, monto, moneda"),
       supabase.from("acuerdos").select("*, machines(nombre), clients(nombre)"),
       supabase.from("corte_precios").select("*"),
       supabase.from("prestamos_sociedad").select("*"),
+      supabase.from("trabajos").select("*"),
+      supabase.from("trabajo_partes").select("*"),
       supabase
         .from("perfiles")
         .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, horas_alojamiento, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
@@ -157,7 +169,7 @@ export default function GananciaPage() {
       supabase.from("feriados").select("fecha, nombre"),
       supabase.from("fondo_movimientos").select("fecha, tipo, categoria, monto, machine_id, rechazado_en, aprobado_en"),
     ]);
-    const fallo = m.error ?? c.error ?? f.error ?? a.error ?? p.error ?? pr.error ?? pf.error ?? tr.error ?? aj.error ?? rp.error ?? fe.error;
+    const fallo = m.error ?? c.error ?? f.error ?? a.error ?? p.error ?? pr.error ?? tb.error ?? tp.error ?? pf.error ?? tr.error ?? aj.error ?? rp.error ?? fe.error;
     if (fallo) {
       setError(`No se pudieron cargar los datos: ${fallo.message}`);
       setCargando(false);
@@ -202,6 +214,9 @@ export default function GananciaPage() {
     setPrestamos(
       ((pr.data ?? []) as PrestamoSociedad[]).map((x) => ({ ...x, cuota: Number(x.cuota) }))
     );
+
+    setTrabajos((tb.data ?? []).map(aTrabajo));
+    setPartes((tp.data ?? []).map(aParte));
 
     const feriados: Record<string, string> = {};
     (fe.data ?? []).forEach((x: { fecha: string; nombre: string }) => (feriados[x.fecha] = x.nombre));
@@ -268,8 +283,8 @@ export default function GananciaPage() {
   const clave = claveSel ?? corteDe(hoyRD()).clave;
   const precio = precios.find((p) => p.corte === clave) ?? null;
   const r = useMemo(
-    () => calcularGanancia({ clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo, prestamos }),
-    [clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo, prestamos]
+    () => calcularGanancia({ clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo, prestamos, trabajos, partes }),
+    [clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo, prestamos, trabajos, partes]
   );
 
   return (
@@ -315,22 +330,63 @@ export default function GananciaPage() {
         <div className="empty">No hay horas aprobadas en este corte todavía.</div>
       ) : (
         <>
-          {r.maquinas.map((m) => (
-            <Tarjeta
-              key={m.machineId}
-              m={m}
-              titulo={m.maquina}
-              onCuota={() =>
-                setEditor({
-                  categoria: CAT_PRESTAMO,
-                  machineId: m.machineId,
-                  monto: String(m.cuota),
-                  descripcion: `Cuota${m.cuotaNota ? ` ${m.cuotaNota.replace("cuota ", "")}` : ""} del préstamo de ${m.maquina}`,
-                })
-              }
-            />
+          {r.grupos.map((g) => (
+            <div key={g.nombre}>
+              <h2 style={{ fontSize: 20, margin: "18px 0 8px" }}>{g.nombre}</h2>
+              {g.maquinas.map((m) => (
+                <Tarjeta
+                  key={m.machineId}
+                  m={m}
+                  titulo={m.maquina}
+                  onCuota={() =>
+                    setEditor({
+                      categoria: CAT_PRESTAMO,
+                      machineId: m.machineId,
+                      monto: String(m.cuota),
+                      descripcion: `Cuota${m.cuotaNota ? ` ${m.cuotaNota.replace("cuota ", "")}` : ""} del préstamo de ${m.maquina}`,
+                    })
+                  }
+                />
+              ))}
+              <Tarjeta m={g.total} titulo={g.nombre === "Otros clientes" ? "Total otros clientes" : `Total ${g.nombre}`} />
+            </div>
           ))}
-          <Tarjeta m={r.total} titulo="Todas las máquinas" />
+          <div className="resumen">
+            <h2 style={{ fontSize: 20, margin: "0 0 8px" }}>Resumen total</h2>
+            {r.grupos.map((g) => (
+              <div className="line" key={g.nombre} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span>Ganancia de operar · {g.nombre}</span>
+                <span>{rd(g.total.ganancia)}</span>
+              </div>
+            ))}
+            {r.prestamos.monto > 0 && (
+              <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span>− Cuotas de los préstamos de Francisco</span>
+                <span>{rd(r.prestamos.monto)}</span>
+              </div>
+            )}
+            <div style={{ margin: "8px 0", fontSize: 20, fontWeight: 800, color: colorGanancia(r.total.ganancia) }}>
+              Ganancia de operar total {r.total.ganancia < 0 ? "−" : ""}
+              {rd(Math.abs(r.total.ganancia))}
+              {r.total.porcentaje != null && <span style={{ fontSize: 15, fontWeight: 600 }}> · {fmtNum(r.total.porcentaje, 1)}%</span>}
+            </div>
+            {r.total.cuota > 0 && (
+              <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span>− Cuota del préstamo de la Hyundai</span>
+                <span>{rd(r.total.cuota)}</span>
+              </div>
+            )}
+            <div style={{ margin: "8px 0 0", fontSize: 20, fontWeight: 800, color: colorGanancia(r.total.gananciaFinal) }}>
+              Te queda {r.total.gananciaFinal < 0 ? "−" : ""}
+              {rd(Math.abs(r.total.gananciaFinal))}
+              {r.total.porcentajeFinal != null && <span style={{ fontSize: 15, fontWeight: 600 }}> · {fmtNum(r.total.porcentajeFinal, 1)}%</span>}
+            </div>
+            {r.total.avisos.map((a) => (
+              <div className="alerta" key={a}>
+                {a}
+              </div>
+            ))}
+          </div>
           <div className="resumen">
             <h2 style={{ fontSize: 18, margin: "0 0 4px" }}>Financiamiento de la sociedad</h2>
             <div className="hint" style={{ marginBottom: 8 }}>
@@ -368,7 +424,7 @@ export default function GananciaPage() {
           )}
           <div className="hint" style={{ marginBottom: 24 }}>
             Cuenta: cobrado al cliente menos pago del operador (horas, dieta y combustible), combustible de la máquina, pago al dueño
-            y gastos del Fondo con máquina. Un día con la máquina dañada se carga a la máquina de ese operador. No incluye depreciación. La cuota del préstamo se resta aparte, para que veas cuánto rinde la máquina y cuánto te queda. Las piscinas (precio cerrado) se ven en Trabajos.
+            y gastos del Fondo con máquina. Un día con la máquina dañada se carga a la máquina de ese operador. No incluye depreciación. La cuota del préstamo se resta aparte, para que veas cuánto rinde la máquina y cuánto te queda. Las piscinas (precio cerrado) cuentan cuando se terminan.
           </div>
         </>
       )}
