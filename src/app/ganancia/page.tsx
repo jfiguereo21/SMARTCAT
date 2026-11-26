@@ -13,7 +13,7 @@ import type { PreciosCorte } from "@/lib/combustible";
 import type { CargaCorte } from "@/lib/corte";
 import { aAjusteRow, aPerfilPago, aReporteDiaRow, aTratoRow, type PerfilPago } from "@/lib/pagos";
 import { costoDiasOperador, type CostoDia } from "@/lib/trabajos";
-import { calcularGanancia, type ConduceGanancia, type GastoFondo, type GananciaMaquina } from "@/lib/ganancia";
+import { calcularGanancia, type ConduceGanancia, type GastoFondo, type GananciaMaquina, type PrestamoSociedad } from "@/lib/ganancia";
 
 const rd = (n: number) => fmtMonto(n, "DOP");
 const colorGanancia = (n: number) => (n < 0 ? "var(--danger)" : "var(--ok)");
@@ -126,6 +126,7 @@ export default function GananciaPage() {
   const [precios, setPrecios] = useState<PreciosCorte[]>([]);
   const [operadores, setOperadores] = useState<Map<string, Map<string, CostoDia>>>(new Map());
   const [fondo, setFondo] = useState<GastoFondo[]>([]);
+  const [prestamos, setPrestamos] = useState<PrestamoSociedad[]>([]);
   const [sinFondo, setSinFondo] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
@@ -136,12 +137,13 @@ export default function GananciaPage() {
   const cargar = useCallback(async () => {
     const supabase = createClient();
     const hoy = hoyRD();
-    const [m, c, f, a, p, pf, tr, aj, rp, fe, fo] = await Promise.all([
+    const [m, c, f, a, p, pr, pf, tr, aj, rp, fe, fo] = await Promise.all([
       supabase.from("machines").select("*").order("nombre"),
       supabase.from("conduces").select("machine_id, fecha, horas_cobrables, estado, creado_por, parte_id").neq("estado", "Rechazado"),
       supabase.from("fuel_logs").select("machine_id, fecha, galones, origen, estado, monto, moneda"),
       supabase.from("acuerdos").select("*, machines(nombre), clients(nombre)"),
       supabase.from("corte_precios").select("*"),
+      supabase.from("prestamos_sociedad").select("*"),
       supabase
         .from("perfiles")
         .select("user_id, nombre, activo, tarifa_hora, paga_desde, dieta_diaria, combustible_diario, combustible_por, horas_alojamiento, horas_sin_conduce, minimo_horas_dia, minimo_horas_sabado, dieta_siempre")
@@ -152,7 +154,7 @@ export default function GananciaPage() {
       supabase.from("feriados").select("fecha, nombre"),
       supabase.from("fondo_movimientos").select("fecha, tipo, categoria, monto, machine_id, rechazado_en, aprobado_en"),
     ]);
-    const fallo = m.error ?? c.error ?? f.error ?? a.error ?? p.error ?? pf.error ?? tr.error ?? aj.error ?? rp.error ?? fe.error;
+    const fallo = m.error ?? c.error ?? f.error ?? a.error ?? p.error ?? pr.error ?? pf.error ?? tr.error ?? aj.error ?? rp.error ?? fe.error;
     if (fallo) {
       setError(`No se pudieron cargar los datos: ${fallo.message}`);
       setCargando(false);
@@ -192,6 +194,10 @@ export default function GananciaPage() {
         precio_diesel_dop: Number(x.precio_diesel_dop),
         tasa_dolar: Number(x.tasa_dolar),
       }))
+    );
+
+    setPrestamos(
+      ((pr.data ?? []) as PrestamoSociedad[]).map((x) => ({ ...x, cuota: Number(x.cuota) }))
     );
 
     const feriados: Record<string, string> = {};
@@ -259,8 +265,8 @@ export default function GananciaPage() {
   const clave = claveSel ?? corteDe(hoyRD()).clave;
   const precio = precios.find((p) => p.corte === clave) ?? null;
   const r = useMemo(
-    () => calcularGanancia({ clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo }),
-    [clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo]
+    () => calcularGanancia({ clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo, prestamos }),
+    [clave, maquinas, conduces, cargas, acuerdos, precio, operadores, fondo, prestamos]
   );
 
   return (
@@ -325,24 +331,28 @@ export default function GananciaPage() {
           <div className="resumen">
             <h2 style={{ fontSize: 18, margin: "0 0 4px" }}>Financiamiento de la sociedad</h2>
             <div className="hint" style={{ marginBottom: 8 }}>
-              Cuotas de préstamos anotadas en el Fondo sin máquina, por ejemplo los préstamos personales que se usan para la
-              inicial y como fondo.
+              Los préstamos personales de Francisco (APAP y el préstamo a cuotas) se cuentan solos cada corte, con su cuota fija.
             </div>
-            <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span>Cuotas anotadas en este corte{r.prestamos.cantidad > 0 ? ` (${r.prestamos.cantidad})` : ""}</span>
+            {prestamos.map((x) => (
+              <div className="line" key={x.id} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span>{x.nombre}</span>
+                <span>{fmtMonto(Number(x.cuota), x.moneda)}</span>
+              </div>
+            ))}
+            <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8, fontWeight: 700 }}>
+              <span>Cuotas de este corte (ya suman como gasto)</span>
               <span>{rd(r.prestamos.monto)}</span>
             </div>
-            <div className="hint">Ya están sumadas como gasto en "Todas las máquinas".</div>
-            {r.prestamos.cantidad === 0 && (
-              <div className="aviso">No hay cuotas de préstamos personales anotadas en este corte.</div>
-            )}
+            <div className="hint">
+              Anotadas en el Fondo: {rd(r.prestamos.registrado)}. Si anotas el pago aquí abajo, no se cuenta dos veces.
+            </div>
             <button
               type="button"
               className="btn"
               style={{ width: "100%", marginTop: 8 }}
               onClick={() => setEditor({ categoria: CAT_PRESTAMO, machineId: "", monto: "", descripcion: "Cuota de préstamo personal" })}
             >
-              Registrar la cuota de un préstamo personal
+              Anotar de dónde salió el pago de una cuota
             </button>
           </div>
           {(r.sinMaquina.operador > 0 || r.sinMaquina.gastos > 0) && (

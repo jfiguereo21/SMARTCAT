@@ -70,7 +70,7 @@ export type ResultadoGanancia = {
   total: Omit<GananciaMaquina, "machineId" | "maquina" | "avisos"> & { avisos: string[] };
   sinMaquina: { operador: number; gastos: number }; // costos que no se pudieron asignar a ninguna máquina
   // Cuotas de préstamos de la sociedad anotadas en el Fondo sin máquina (por ejemplo los préstamos personales de un socio).
-  prestamos: { monto: number; cantidad: number };
+  prestamos: { monto: number; cantidad: number; fijo: number; registrado: number };
   tasaDolar: number | null;
 };
 
@@ -91,6 +91,16 @@ export function fechasCuotas(primera: string, dia: number, cuotas: number): stri
   return out;
 }
 
+// Préstamo de la sociedad con cuota fija mensual (por ejemplo los personales de un socio).
+export type PrestamoSociedad = {
+  id: string;
+  nombre: string;
+  cuota: number;
+  moneda: Moneda;
+  desde: string; // primer día desde el que se paga
+  hasta: string | null; // último día (null = sin fecha final)
+};
+
 export function calcularGanancia(e: {
   clave: string;
   maquinas: Machine[];
@@ -100,6 +110,7 @@ export function calcularGanancia(e: {
   precio: PreciosCorte | null;
   operadores: Map<string, Map<string, CostoDia>>; // por operador, por fecha
   fondo: GastoFondo[];
+  prestamos?: PrestamoSociedad[];
 }): ResultadoGanancia {
   const { clave } = e;
   const { inicio, fin } = rangoCorte(clave);
@@ -304,7 +315,21 @@ export function calcularGanancia(e: {
   const prestamosFondo = e.fondo.filter(
     (g) => !g.rechazado && g.tipo === "Salida" && g.categoria === CAT_PRESTAMO && !g.machine_id && g.fecha >= inicio && g.fecha <= fin
   );
-  const prestamosMonto = redondear2(prestamosFondo.reduce((t, g) => t + g.monto, 0));
+  const registrado = redondear2(prestamosFondo.reduce((t, g) => t + g.monto, 0));
+  // Cuota fija de cada préstamo: una por corte, mientras el corte esté dentro de sus fechas.
+  let fijo = 0;
+  const avisosPrest: string[] = [];
+  for (const pr of e.prestamos ?? []) {
+    if (pr.desde > fin || (pr.hasta && pr.hasta < inicio)) continue;
+    if (pr.moneda === "USD" && tasa == null) {
+      avisosPrest.push(`Falta la tasa del dólar de este corte: la cuota de "${pr.nombre}" no está restada.`);
+      continue;
+    }
+    fijo += Number(pr.cuota) * (pr.moneda === "USD" ? (tasa as number) : 1);
+  }
+  fijo = redondear2(fijo);
+  // Si ya se anotaron en el Fondo, no se cuentan dos veces: vale lo mayor entre lo fijo y lo anotado.
+  const prestamosMonto = Math.max(fijo, registrado);
   const costo = redondear2(maquinas.reduce((t, f) => t + f.costo, 0) + prestamosMonto);
   const ganancia = redondear2(ingreso - costo);
   const cuotaTotal = suma("cuota");
@@ -335,10 +360,10 @@ export function calcularGanancia(e: {
       costoCompra: null,
       compraPendiente: null,
       pctCosto: null,
-      avisos: [...new Set(maquinas.flatMap((f) => f.avisos))],
+      avisos: [...new Set([...maquinas.flatMap((f) => f.avisos), ...avisosPrest])],
     },
     sinMaquina: { operador: redondear2(sinMaquina.operador), gastos: redondear2(sinMaquina.gastos) },
-    prestamos: { monto: prestamosMonto, cantidad: prestamosFondo.length },
+    prestamos: { monto: prestamosMonto, cantidad: prestamosFondo.length, fijo, registrado },
     tasaDolar: tasa,
   };
 }
