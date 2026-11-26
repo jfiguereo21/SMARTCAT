@@ -53,13 +53,6 @@ function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCu
         {rd(Math.abs(m.ganancia))}
         {m.porcentaje != null && <span style={{ fontSize: 15, fontWeight: 600 }}> · {fmtNum(m.porcentaje, 1)}%</span>}
       </div>
-      {m.tienePrestamo && (
-        <div style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: colorGanancia(m.gananciaFinal) }}>
-          Después del préstamo {m.gananciaFinal < 0 ? "−" : ""}
-          {rd(Math.abs(m.gananciaFinal))}
-          {m.porcentajeFinal != null && <span style={{ fontSize: 14, fontWeight: 600 }}> · {fmtNum(m.porcentajeFinal, 1)}%</span>}
-        </div>
-      )}
       <Linea texto="Cobrado al cliente (sin el combustible que dio el cliente)" valor={m.ingreso} resta={false} />
       <Linea texto="Operador: horas" valor={m.operadorHoras} />
       <Linea texto="Operador: dieta y combustible" valor={m.operadorCampo} />
@@ -72,16 +65,28 @@ function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCu
         nota={m.gastosPorAprobar > 0 ? `incluye ${rd(m.gastosPorAprobar)} por aprobar` : undefined}
       />
       <div className="line" style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
-        <span>Costo total</span>
+        <span>Total de gastos</span>
         <span>{rd(m.costo)}</span>
       </div>
+      <div className="line" style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, color: colorGanancia(m.ganancia) }}>
+        <span>{m.tienePrestamo ? "Ganancia de operar (cobrado − gastos)" : "Ganancia (cobrado − gastos)"}</span>
+        <span>{m.ganancia < 0 ? "−" : ""}{rd(Math.abs(m.ganancia))}</span>
+      </div>
       {m.tienePrestamo && (
-        <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-          <span>
-            − Cuota del préstamo{m.cuotaNota ? ` (${m.cuotaNota})` : " (no cae en este corte)"}
-          </span>
-          <span>{rd(m.cuota)}</span>
-        </div>
+        <>
+          <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <span>− Cuota del préstamo{m.cuotaNota ? ` (${m.cuotaNota})` : " (no cae en este corte)"}</span>
+            <span>{rd(m.cuota)}</span>
+          </div>
+          <div className="line" style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, color: colorGanancia(m.gananciaFinal) }}>
+            <span>Te queda después del préstamo</span>
+            <span>
+              {m.gananciaFinal < 0 ? "−" : ""}
+              {rd(Math.abs(m.gananciaFinal))}
+              {m.porcentajeFinal != null ? ` · ${fmtNum(m.porcentajeFinal, 1)}%` : ""}
+            </span>
+          </div>
+        </>
       )}
       {m.tienePrestamo && m.cuota > 0 && onCuota && (
         m.cuotaRegistrada ? (
