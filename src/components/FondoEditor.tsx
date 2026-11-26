@@ -29,11 +29,12 @@ type Props = {
   socios: Socio[];
   uid: string;
   modo?: Modo;
+  inicial?: { categoria?: string; machineId?: string; monto?: string; descripcion?: string }; // para abrirlo ya lleno
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose, onSaved }: Props) {
+export default function FondoEditor({ mov, maquinas, socios, uid, modo, inicial, onClose, onSaved }: Props) {
   const nuevo = mov === null;
   const nombreDe = (id: string | null) => socios.find((s) => s.user_id === id)?.nombre || "otro socio";
   const urlComp = useFotoUrl(mov?.comprobante_path);
@@ -41,12 +42,12 @@ export default function FondoEditor({ mov, maquinas, socios, uid, modo, onClose,
   const atajo = mov === null ? modo : undefined;
   const [tipo, setTipo] = useState<TipoMov>(mov?.tipo ?? (atajo === "aporte" ? "Entrada" : "Salida"));
   const [fecha, setFecha] = useState(mov?.fecha ?? hoyRD());
-  const [monto, setMonto] = useState(mov ? String(mov.monto) : "");
-  const [categoria, setCategoria] = useState(mov?.categoria ?? (atajo === "aporte" ? CAT_APORTE : atajo === "reparto" ? CAT_REPARTO : ""));
-  const [machineId, setMachineId] = useState(mov?.machine_id ?? "");
+  const [monto, setMonto] = useState(mov ? String(mov.monto) : inicial?.monto ?? "");
+  const [categoria, setCategoria] = useState(mov?.categoria ?? inicial?.categoria ?? (atajo === "aporte" ? CAT_APORTE : atajo === "reparto" ? CAT_REPARTO : ""));
+  const [machineId, setMachineId] = useState(mov?.machine_id ?? inicial?.machineId ?? "");
   const [origen, setOrigen] = useState<OrigenMov>(mov?.origen ?? (atajo === "bolsillo" ? "Bolsillo" : "Fondo"));
   const [socioId, setSocioId] = useState(mov?.socio_id ?? (atajo === "aporte" || atajo === "bolsillo" ? uid : ""));
-  const [descripcion, setDescripcion] = useState(mov?.descripcion ?? "");
+  const [descripcion, setDescripcion] = useState(mov?.descripcion ?? inicial?.descripcion ?? "");
   // Fondo (del socio) del que sale el dinero, o al que entra si se edita una entrada.
   const [fondoId, setFondoId] = useState(mov?.fondo_socio_id ?? (mov === null ? uid : ""));
   // Entrada nueva (no aporte): cuánto le toca a cada fondo.

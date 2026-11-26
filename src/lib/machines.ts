@@ -20,6 +20,16 @@ export type Machine = {
   dueno: string | null;
   pago_dueno: number | null;
   descuenta_combustible_dueno: boolean; // al pago del dueño se le resta el combustible que echan
+  costo_compra?: number | null; // lo que costó la máquina
+  costo_moneda?: Moneda;
+  prestamo_cuota?: number | null; // cuota mensual del préstamo con que se compró
+  prestamo_moneda?: Moneda;
+  prestamo_dia?: number | null; // día del mes en que se paga
+  prestamo_cuotas?: number | null; // cuántas cuotas son en total
+  prestamo_primera?: string | null; // fecha de la primera cuota (AAAA-MM-DD)
+  compra_pendiente?: number | null; // lo que falta por pagar de la compra (por ejemplo la placa, a la entrega)
+  seguro_prima_anual?: number | null; // prima del seguro por año
+  seguro_moneda?: Moneda;
   notas: string | null;
 };
 

@@ -39,6 +39,7 @@ export type FondoConfig = { saldo_inicial: number; fecha_inicial: string | null;
 export const CAT_APORTE = "Aporte de socio";
 export const CAT_REEMBOLSO = "Reembolso a socio";
 export const CAT_REPARTO = "Reparto a socios";
+export const CAT_PRESTAMO = "Cuota de préstamo";
 
 export const CATEGORIAS_ENTRADA = [CAT_APORTE, "Cobro de cliente", "Otro ingreso"];
 export const CATEGORIAS_SALIDA = [
@@ -46,6 +47,7 @@ export const CATEGORIAS_SALIDA = [
   "Mantenimiento y repuestos",
   "Transporte",
   "Seguro",
+  CAT_PRESTAMO,
   "GPS",
   "Impuestos y TSS",
   CAT_REEMBOLSO,

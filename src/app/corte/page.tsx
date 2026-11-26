@@ -144,6 +144,9 @@ export default function CortePage() {
           {bajando ? "Armando..." : "Descargar Excel"}
         </button>
       </div>
+      <Link href="/ganancia" className="btn" style={{ display: "block", textAlign: "center", marginBottom: 12, fontWeight: 700 }}>
+        Ganancia por máquina
+      </Link>
 
       {error && <div className="error">{error}</div>}
 
