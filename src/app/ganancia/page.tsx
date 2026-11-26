@@ -36,7 +36,7 @@ type DatosTarjeta = Pick<
   GananciaMaquina,
   | "horas" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar"
   | "costo" | "ganancia" | "porcentaje" | "cuota" | "cuotaNota" | "tienePrestamo" | "gananciaFinal" | "porcentajeFinal"
-  | "costoCompra" | "pctCosto" | "avisos" | "seguro" | "cuotaRegistrada" | "compraPendiente"
+  | "costoCompra" | "pctCosto" | "avisos" | "seguro" | "cuotaRegistrada" | "compraPendiente" | "prestamosSociedad"
 >;
 
 function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCuota?: () => void }) {
@@ -59,6 +59,7 @@ function Tarjeta({ m, titulo, onCuota }: { m: DatosTarjeta; titulo: string; onCu
       <Linea texto="Combustible de la máquina" valor={m.combustible} />
       <Linea texto="Seguro de la máquina (1/12 de la prima)" valor={m.seguro} />
       <Linea texto="Pago al dueño de la máquina" valor={m.dueno} />
+      {m.prestamosSociedad > 0 && <Linea texto="Cuotas de los préstamos de Francisco" valor={m.prestamosSociedad} />}
       <Linea
         texto="Gastos del Fondo (reparaciones, repuestos...)"
         valor={m.gastos}
@@ -328,14 +329,10 @@ export default function GananciaPage() {
               inicial y como fondo.
             </div>
             <div className="line" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span>− Cuotas de préstamos anotadas{r.prestamos.cantidad > 0 ? ` (${r.prestamos.cantidad})` : ""}</span>
+              <span>Cuotas anotadas en este corte{r.prestamos.cantidad > 0 ? ` (${r.prestamos.cantidad})` : ""}</span>
               <span>{rd(r.prestamos.monto)}</span>
             </div>
-            <div style={{ margin: "8px 0", fontSize: 18, fontWeight: 800, color: colorGanancia(r.gananciaTrasPrestamos) }}>
-              Después de todos los préstamos {r.gananciaTrasPrestamos < 0 ? "−" : ""}
-              {rd(Math.abs(r.gananciaTrasPrestamos))}
-              {r.porcentajeTrasPrestamos != null && <span style={{ fontSize: 14, fontWeight: 600 }}> · {fmtNum(r.porcentajeTrasPrestamos, 1)}%</span>}
-            </div>
+            <div className="hint">Ya están sumadas como gasto en "Todas las máquinas".</div>
             {r.prestamos.cantidad === 0 && (
               <div className="aviso">No hay cuotas de préstamos personales anotadas en este corte.</div>
             )}

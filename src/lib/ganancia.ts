@@ -47,6 +47,7 @@ export type GananciaMaquina = {
   gastos: number; // gastos del Fondo con esta máquina
   gastosPorAprobar: number; // cuánto de los gastos aún no lo aprueba el otro socio (ya está sumado arriba)
   seguro: number; // el seguro de la máquina, un doceavo de la prima por corte
+  prestamosSociedad: number; // cuotas de préstamos de la sociedad (solo en el total, no en cada máquina)
   costo: number;
   ganancia: number; // ganancia de operar la máquina, antes de la cuota del préstamo
   porcentaje: number | null; // ganancia entre ingreso
@@ -70,8 +71,6 @@ export type ResultadoGanancia = {
   sinMaquina: { operador: number; gastos: number }; // costos que no se pudieron asignar a ninguna máquina
   // Cuotas de préstamos de la sociedad anotadas en el Fondo sin máquina (por ejemplo los préstamos personales de un socio).
   prestamos: { monto: number; cantidad: number };
-  gananciaTrasPrestamos: number; // después de la cuota de la máquina y de estos préstamos
-  porcentajeTrasPrestamos: number | null;
   tasaDolar: number | null;
 };
 
@@ -123,6 +122,7 @@ export function calcularGanancia(e: {
         gastos: 0,
         gastosPorAprobar: 0,
         seguro: 0,
+        prestamosSociedad: 0,
         costo: 0,
         ganancia: 0,
         porcentaje: null,
@@ -300,14 +300,14 @@ export function calcularGanancia(e: {
   const suma = (k: "horas" | "cuota" | "seguro" | "ingreso" | "operadorHoras" | "operadorCampo" | "combustible" | "dueno" | "gastos" | "gastosPorAprobar") =>
     redondear2(maquinas.reduce((t, f) => t + f[k], 0));
   const ingreso = suma("ingreso");
-  const costo = redondear2(maquinas.reduce((t, f) => t + f.costo, 0));
-  const ganancia = redondear2(ingreso - costo);
-  const cuotaTotal = suma("cuota");
+  // Cuotas de préstamos de la sociedad (por ejemplo los de Francisco) anotadas en el Fondo sin máquina: son un gasto del total.
   const prestamosFondo = e.fondo.filter(
     (g) => !g.rechazado && g.tipo === "Salida" && g.categoria === CAT_PRESTAMO && !g.machine_id && g.fecha >= inicio && g.fecha <= fin
   );
   const prestamosMonto = redondear2(prestamosFondo.reduce((t, g) => t + g.monto, 0));
-  const finalTotal = redondear2(ganancia - cuotaTotal);
+  const costo = redondear2(maquinas.reduce((t, f) => t + f.costo, 0) + prestamosMonto);
+  const ganancia = redondear2(ingreso - costo);
+  const cuotaTotal = suma("cuota");
   return {
     inicio,
     fin,
@@ -322,6 +322,7 @@ export function calcularGanancia(e: {
       gastos: suma("gastos"),
       gastosPorAprobar: suma("gastosPorAprobar"),
       seguro: suma("seguro"),
+      prestamosSociedad: prestamosMonto,
       costo,
       ganancia,
       porcentaje: ingreso > 0 ? redondear2((ganancia / ingreso) * 100) : null,
@@ -338,8 +339,6 @@ export function calcularGanancia(e: {
     },
     sinMaquina: { operador: redondear2(sinMaquina.operador), gastos: redondear2(sinMaquina.gastos) },
     prestamos: { monto: prestamosMonto, cantidad: prestamosFondo.length },
-    gananciaTrasPrestamos: redondear2(finalTotal - prestamosMonto),
-    porcentajeTrasPrestamos: ingreso > 0 ? redondear2(((finalTotal - prestamosMonto) / ingreso) * 100) : null,
     tasaDolar: tasa,
   };
 }
