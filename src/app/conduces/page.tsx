@@ -45,22 +45,27 @@ export default function ConducesPage() {
     cargar();
   }, [cargar]);
 
-  // Cortes que existen en los datos, el más reciente primero.
+  // Cortes que existen en los datos, el más reciente primero. El de hoy siempre sale, aunque todavía no tenga conduces.
   const cortes = useMemo(() => {
     const mapa = new Map<string, string>();
     conduces.forEach((c) => {
       const k = corteDe(c.fecha);
       mapa.set(k.clave, k.etiqueta);
     });
+    const h = corteDe(hoyRD());
+    mapa.set(h.clave, h.etiqueta);
     return [...mapa.entries()]
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
       .map(([clave, etiqueta]) => ({ clave, etiqueta }));
   }, [conduces]);
 
-  // Al abrir: el corte de hoy si tiene conduces; si no, el más reciente.
+  // Al abrir: el corte de hoy si tiene conduces; si no, el más reciente que sí tiene conduces.
+  const conConduces = new Set(conduces.map((c) => corteDe(c.fecha).clave));
   const corteActivo =
     filtroCorte ??
-    (cortes.find((c) => c.clave === corteDe(hoyRD()).clave)?.clave ?? cortes[0]?.clave ?? "todos");
+    (conConduces.has(corteDe(hoyRD()).clave)
+      ? corteDe(hoyRD()).clave
+      : (cortes.find((c) => conConduces.has(c.clave))?.clave ?? cortes[0]?.clave ?? "todos"));
 
   const pendientes = conduces.filter((c) => c.estado === "Pendiente").length;
   const rechazados = conduces.filter((c) => c.estado === "Rechazado").length;
